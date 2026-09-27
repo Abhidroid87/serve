@@ -22,7 +22,8 @@ export function isFirebaseConfigured(): boolean {
 }
 
 function getFirebaseApp(): FirebaseApp {
-  if (getApps().length > 0) return getApp();
+  const defaultApp = getApps().find((app) => app.name === '[DEFAULT]');
+  if (defaultApp) return defaultApp;
 
   const sanitizedConfig = {
     apiKey: firebaseConfig.apiKey || 'demo-api-key',
@@ -34,7 +35,7 @@ function getFirebaseApp(): FirebaseApp {
     measurementId: firebaseConfig.measurementId || 'G-DEMO000000',
   };
 
-  return initializeApp(sanitizedConfig, isFirebaseConfigured() ? 'kehi-live' : 'kehi-demo');
+  return initializeApp(sanitizedConfig);
 }
 
 let _auth: Auth | null = null;
