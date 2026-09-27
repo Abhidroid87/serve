@@ -9,14 +9,32 @@ const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || '',
 };
+
+export function isFirebaseConfigured(): boolean {
+  return Boolean(
+    firebaseConfig.apiKey &&
+    firebaseConfig.authDomain &&
+    firebaseConfig.projectId &&
+    firebaseConfig.appId,
+  );
+}
 
 function getFirebaseApp(): FirebaseApp {
   if (getApps().length > 0) return getApp();
-  if (!firebaseConfig.apiKey) {
-    throw new Error('Firebase config missing. Add NEXT_PUBLIC_FIREBASE_* env vars to .env');
-  }
-  return initializeApp(firebaseConfig);
+
+  const sanitizedConfig = {
+    apiKey: firebaseConfig.apiKey || 'demo-api-key',
+    authDomain: firebaseConfig.authDomain || 'demo-project.firebaseapp.com',
+    projectId: firebaseConfig.projectId || 'demo-project',
+    storageBucket: firebaseConfig.storageBucket || 'demo-project.appspot.com',
+    messagingSenderId: firebaseConfig.messagingSenderId || '0000000000',
+    appId: firebaseConfig.appId || '1:0000000000:web:demo',
+    measurementId: firebaseConfig.measurementId || 'G-DEMO000000',
+  };
+
+  return initializeApp(sanitizedConfig, isFirebaseConfigured() ? 'kehi-live' : 'kehi-demo');
 }
 
 let _auth: Auth | null = null;

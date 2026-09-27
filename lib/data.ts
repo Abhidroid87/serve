@@ -2,7 +2,8 @@ import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, isFirebaseConfigured } from './firebase';
+import { DEMO_CATEGORIES, DEMO_PROVIDER_AVAILABILITY, DEMO_PROVIDER_SERVICES, DEMO_PROVIDERS, DEMO_SERVICES } from './demo-data';
 import type {
   ServiceCategory, Service, Provider, ProviderAvailability,
   Booking, PricingBreakdown, TimeSlot, InstantRequest, Transaction, Review,
@@ -22,18 +23,30 @@ const REVIEWS = 'reviews';
 // ============ READS ============
 
 export async function getCategories(): Promise<ServiceCategory[]> {
-  const snap = await getDocs(collection(db, CATEGORIES));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ServiceCategory));
+  try {
+    const snap = await getDocs(collection(db, CATEGORIES));
+    const categories = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ServiceCategory));
+    return categories.length > 0 ? categories : DEMO_CATEGORIES;
+  } catch (error) {
+    return DEMO_CATEGORIES;
+  }
 }
 
 export async function getAllServices(): Promise<Service[]> {
-  const snap = await getDocs(collection(db, SERVICES));
-  const services = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Service));
-  const cats = await getCategories();
-  return services.map((s) => ({
-    ...s,
-    category: cats.find((c) => c.id === s.category_id),
-  }));
+  try {
+    const snap = await getDocs(collection(db, SERVICES));
+    const services = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Service));
+    if (services.length === 0) {
+      return DEMO_SERVICES.map((s) => ({ ...s, category: DEMO_CATEGORIES.find((c) => c.id === s.category_id) }));
+    }
+    const cats = await getCategories();
+    return services.map((s) => ({
+      ...s,
+      category: cats.find((c) => c.id === s.category_id),
+    }));
+  } catch (error) {
+    return DEMO_SERVICES.map((s) => ({ ...s, category: DEMO_CATEGORIES.find((c) => c.id === s.category_id) }));
+  }
 }
 
 export async function getServicesByCategory(categoryId?: string, searchQuery?: string): Promise<Service[]> {
@@ -68,21 +81,42 @@ export async function getProvidersForService(
   userLng?: number,
   radiusKm: number = 5,
 ): Promise<Provider[]> {
-  const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('service_id', '==', serviceId)));
-  const providerIds = snap.docs.map((d) => (d.data() as { provider_id: string }).provider_id);
-  if (providerIds.length === 0) return [];
-  const providers: Provider[] = [];
-  for (const pid of providerIds) {
-    const pd = await getDoc(doc(db, PROVIDERS, pid));
-    if (pd.exists()) providers.push({ id: pd.id, ...pd.data() } as Provider);
+  try {
+    const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('service_id', '==', serviceId)));
+    const providerIds = snap.docs.map((d) => (d.data() as { provider_id: string }).provider_id);
+    if (providerIds.length === 0) {
+      const demoProviders = DEMO_PROVIDER_SERVICES
+        .filter((ps) => ps.service_id === serviceId)
+        .map((ps) => DEMO_PROVIDERS.find((p) => p.id === ps.provider_id))
+        .filter((p): p is Provider => Boolean(p));
+      return demoProviders;
+    }
+    const providers: Provider[] = [];
+    for (const pid of providerIds) {
+      const pd = await getDoc(doc(db, PROVIDERS, pid));
+      if (pd.exists()) providers.push({ id: pd.id, ...pd.data() } as Provider);
+    }
+    if (providers.length === 0) {
+      const demoProviders = DEMO_PROVIDER_SERVICES
+        .filter((ps) => ps.service_id === serviceId)
+        .map((ps) => DEMO_PROVIDERS.find((p) => p.id === ps.provider_id))
+        .filter((p): p is Provider => Boolean(p));
+      return demoProviders;
+    }
+    if (userLat !== undefined && userLng !== undefined) {
+      return providers.filter((p) => {
+        const dist = haversineDistance(userLat, userLng, p.latitude, p.longitude);
+        return dist <= Math.max(radiusKm, p.service_radius_km);
+      });
+    }
+    return providers;
+  } catch (error) {
+    const demoProviders = DEMO_PROVIDER_SERVICES
+      .filter((ps) => ps.service_id === serviceId)
+      .map((ps) => DEMO_PROVIDERS.find((p) => p.id === ps.provider_id))
+      .filter((p): p is Provider => Boolean(p));
+    return demoProviders;
   }
-  if (userLat !== undefined && userLng !== undefined) {
-    return providers.filter((p) => {
-      const dist = haversineDistance(userLat, userLng, p.latitude, p.longitude);
-      return dist <= Math.max(radiusKm, p.service_radius_km);
-    });
-  }
-  return providers;
 }
 
 export async function getProviderById(id: string): Promise<Provider | null> {
@@ -92,19 +126,33 @@ export async function getProviderById(id: string): Promise<Provider | null> {
 }
 
 export async function getProviderAvailability(providerId: string): Promise<ProviderAvailability[]> {
-  const snap = await getDocs(query(collection(db, PROVIDER_AVAILABILITY), where('provider_id', '==', providerId)));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProviderAvailability));
+  try {
+    const snap = await getDocs(query(collection(db, PROVIDER_AVAILABILITY), where('provider_id', '==', providerId)));
+    const availability = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProviderAvailability));
+    return availability.length > 0 ? availability : DEMO_PROVIDER_AVAILABILITY.filter((slot) => slot.provider_id === providerId);
+  } catch (error) {
+    return DEMO_PROVIDER_AVAILABILITY.filter((slot) => slot.provider_id === providerId);
+  }
 }
 
 export async function getProviderServices(providerId: string): Promise<Service[]> {
-  const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('provider_id', '==', providerId)));
-  const serviceIds = snap.docs.map((d) => (d.data() as { service_id: string }).service_id);
-  const services: Service[] = [];
-  for (const sid of serviceIds) {
-    const sd = await getDoc(doc(db, SERVICES, sid));
-    if (sd.exists()) services.push({ id: sd.id, ...sd.data() } as Service);
+  try {
+    const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('provider_id', '==', providerId)));
+    const serviceIds = snap.docs.map((d) => (d.data() as { service_id: string }).service_id);
+    const services: Service[] = [];
+    for (const sid of serviceIds) {
+      const sd = await getDoc(doc(db, SERVICES, sid));
+      if (sd.exists()) services.push({ id: sd.id, ...sd.data() } as Service);
+    }
+    if (services.length === 0) {
+      const demoServiceIds = DEMO_PROVIDER_SERVICES.filter((ps) => ps.provider_id === providerId).map((ps) => ps.service_id);
+      return DEMO_SERVICES.filter((s) => demoServiceIds.includes(s.id));
+    }
+    return services;
+  } catch (error) {
+    const demoServiceIds = DEMO_PROVIDER_SERVICES.filter((ps) => ps.provider_id === providerId).map((ps) => ps.service_id);
+    return DEMO_SERVICES.filter((s) => demoServiceIds.includes(s.id));
   }
-  return services;
 }
 
 export async function getBookingsByProvider(providerId: string): Promise<Booking[]> {
@@ -209,9 +257,14 @@ export async function getInstantRequestsForProvider(providerId: string): Promise
 }
 
 export async function getAllProviders(): Promise<Provider[]> {
-  const snap = await getDocs(collection(db, PROVIDERS));
-  const providers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Provider));
-  return providers.sort((a, b) => b.rating - a.rating);
+  try {
+    const snap = await getDocs(collection(db, PROVIDERS));
+    const providers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Provider));
+    if (providers.length === 0) return DEMO_PROVIDERS;
+    return providers.sort((a, b) => b.rating - a.rating);
+  } catch (error) {
+    return DEMO_PROVIDERS;
+  }
 }
 
 // ============ REAL-TIME LISTENERS ============
