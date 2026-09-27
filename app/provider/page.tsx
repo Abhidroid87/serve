@@ -104,7 +104,7 @@ export default function ProviderPage() {
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <button onClick={() => window.location.href = '/'} className="p-2 rounded-lg hover:bg-secondary transition-colors">
+              <button onClick={() => window.location.href = `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/`} className="p-2 rounded-lg hover:bg-secondary transition-colors">
                 <ArrowLeft className="h-4 w-4" />
               </button>
               <div className="flex items-center gap-2">

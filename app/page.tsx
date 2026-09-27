@@ -141,7 +141,7 @@ export default function Home() {
                 </button>
               )}
               <button
-                onClick={() => window.open('/provider', '_blank')}
+                onClick={() => window.open(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/provider/`, '_blank')}
                 className="text-sm font-medium px-4 py-2 rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors hidden sm:flex items-center gap-1.5"
               >
                 Provider <ArrowRight className="h-3.5 w-3.5" />
