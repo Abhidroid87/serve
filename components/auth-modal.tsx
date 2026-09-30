@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 
 export function AuthModal() {
   const { showAuthModal, setShowAuthModal, signIn, signUp, pendingAction } = useAuth();
-  const [mode, setMode] = useState<'signin' | 'signup'>('signup');
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
