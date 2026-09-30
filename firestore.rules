@@ -1,53 +1,106 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /service_categories/{doc} {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function ownsProvider(providerId) {
+      return signedIn() && request.auth.uid == providerId;
+    }
+
+    match /providers/{userId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow create: if ownsProvider(userId)
+        && request.resource.data.auth_uid == request.auth.uid
+        && request.resource.data.is_verified == false;
+      allow update: if isAdmin() || (ownsProvider(userId)
+        && resource.data.auth_uid == request.auth.uid
+        && request.resource.data.auth_uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'business_name', 'phone', 'address', 'city', 'locality', 'bio',
+          'service_radius_km', 'latitude', 'longitude', 'is_checked_in'
+        ]));
+      allow delete: if isAdmin();
     }
 
-    match /services/{doc} {
+    match /service_categories/{categoryId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
 
-    match /providers/{doc} {
+    match /services/{serviceId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
 
-    match /provider_services/{doc} {
+    match /provider_services/{relationId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow create: if isAdmin() || (ownsProvider(request.resource.data.provider_id)
+        && getAfter(/databases/$(database)/documents/providers/$(request.resource.data.provider_id)).data.auth_uid == request.auth.uid);
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || ownsProvider(resource.data.provider_id);
     }
 
-    match /provider_availability/{doc} {
+    match /provider_availability/{availabilityId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow create: if isAdmin() || ownsProvider(request.resource.data.provider_id);
+      allow update: if isAdmin() || (ownsProvider(resource.data.provider_id)
+        && request.resource.data.provider_id == resource.data.provider_id);
+      allow delete: if isAdmin() || ownsProvider(resource.data.provider_id);
     }
 
-    match /bookings/{doc} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
+    match /bookings/{bookingId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.customer_uid == request.auth.uid;
+      allow update: if isAdmin() || (signedIn()
+        && resource.data.provider_id == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completed_at']));
+      allow delete: if isAdmin();
     }
 
-    match /transactions/{doc} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
+    match /transactions/{transactionId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.customer_uid == request.auth.uid;
+      allow update: if isAdmin() || (signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'released_at'])
+        && get(/databases/$(database)/documents/bookings/$(resource.data.booking_id)).data.provider_id == request.auth.uid);
+      allow delete: if isAdmin();
     }
 
-    match /instant_requests/{doc} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
+    match /instant_requests/{requestId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.customer_uid == request.auth.uid;
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.customer_uid == request.auth.uid
+          && request.resource.data.status == 'cancelled')
+        || (signedIn() && request.resource.data.provider_id == request.auth.uid
+          && resource.data.status == 'broadcasting'
+          && request.resource.data.status == 'accepted'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'provider_id', 'accepted_at'])
+          && exists(/databases/$(database)/documents/provider_services/$(request.auth.uid + '_' + resource.data.service_id))
+          && get(/databases/$(database)/documents/providers/$(request.auth.uid)).data.is_verified == true);
+      allow delete: if isAdmin();
     }
 
-    match /reviews/{doc} {
+    match /queries/{queryId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.customer_uid == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.customer_uid == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
       allow read: if true;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
+      allow create: if signedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /admin/{docId} {
+      allow read, write: if isAdmin();
     }
   }
 }

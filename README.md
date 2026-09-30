@@ -67,6 +67,8 @@ lib/
 | `transactions` | Payment records (held/released) | Auth required |
 | `instant_requests` | Real-time instant work dispatch | Auth required to write |
 | `reviews` | Customer reviews for providers | Public read |
+| `queries` | Customer enquiry records | Owner and admin access |
+| `admin` | Moderation-only records | Admin claim required |
 
 ## Setup Guide
 
@@ -98,39 +100,22 @@ NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
 NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
 ```
 
-### 4. Set Firestore Security Rules
+### 4. Deploy Firestore Security Rules
 
-In the Firebase Console → Firestore → Rules, paste:
+The rules in `firestore.rules` bind provider profile writes to the matching Firebase UID and require the Firebase `admin` custom claim for moderation actions. Deploy them with the Firebase CLI after selecting the correct project:
 
+```bash
+firebase use <project-id>
+firebase deploy --only firestore:rules
 ```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /service_categories/{doc} { allow read: if true; }
-    match /services/{doc} { allow read: if true; }
-    match /providers/{doc} { allow read: if true; }
-    match /provider_services/{doc} { allow read: if true; }
-    match /provider_availability/{doc} { allow read: if true; write: if request.auth != null; }
-    match /reviews/{doc} { allow read: if true; allow create: if request.auth != null; }
 
-    match /bookings/{doc} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
-    }
-    match /transactions/{doc} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
-    }
-    match /instant_requests/{doc} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
-    }
-  }
-}
+Grant dashboard access from a trusted server or one-off Admin SDK environment, never from browser code:
+
+```javascript
+await admin.auth().setCustomUserClaims(uid, { admin: true });
 ```
+
+After the claim is set, sign out and back in (or refresh the ID token). The moderation console is available at `/admin/` (or `/serve/admin/` when deployed with the `/serve` base path). It includes provider approval/rejection, customer enquiry logs, and manual assignment to a verified provider qualified for the requested service.
 
 ### 5. Seed the Database
 
@@ -150,7 +135,7 @@ The `icon` field stores a Lucide React icon name (e.g., `"Wind"`, `"Droplets"`, 
 npm run dev
 ```
 
-Visit `http://localhost:3000` for the customer app and `http://localhost:3000/provider` for the provider dashboard.
+Visit `http://localhost:3000` for the customer app, `http://localhost:3000/provider` for the provider dashboard, and `http://localhost:3000/admin` for moderation (requires the admin claim).
 
 ## Build
 

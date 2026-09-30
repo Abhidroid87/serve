@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Wrench, ArrowLeft, Star, Calendar, Clock, Zap, CheckCircle2, Radio, Power, Check,
   MapPin, Phone, User, TrendingUp, Loader2, Bell, Navigation, X,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import type { Provider, Booking, Service, ProviderAvailability, InstantRequest } from '@/lib/types';
+import type { Provider, Booking, Service, ServiceCategory, ProviderAvailability, InstantRequest } from '@/lib/types';
 import {
   createProviderProfile, getMarketplaceCatalog, getProviderById, getBookingsByProvider, getProviderAvailability, getProviderServices,
   getInstantRequestsForProvider, onProviderBookings, acceptInstantRequest, updateProviderCheckIn,
@@ -23,6 +22,7 @@ export default function ProviderPage() {
   const { user, loading: authLoading, setShowAuthModal } = useAuth();
   const [provider, setProvider] = useState<Provider | null>(null);
   const [catalogServices, setCatalogServices] = useState<Service[]>([]);
+  const [catalogCategories, setCatalogCategories] = useState<ServiceCategory[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [availability, setAvailability] = useState<ProviderAvailability[]>([]);
   const [providerServices, setProviderServices] = useState<Service[]>([]);
@@ -46,6 +46,7 @@ export default function ProviderPage() {
       .then(([profile, catalog]) => {
         if (!active) return;
         setProvider(profile);
+        setCatalogCategories(catalog.categories);
         setCatalogServices(catalog.services);
       })
       .catch((error) => {
@@ -128,6 +129,7 @@ export default function ProviderPage() {
     <ProviderOnboarding
       userName={user.displayName || user.email?.split('@')[0] || ''}
       userEmail={user.email || ''}
+      categories={catalogCategories}
       services={catalogServices}
       initialError={setupError}
       onCreate={async (profile, serviceIds) => {
@@ -341,7 +343,9 @@ export default function ProviderPage() {
                 <div className="space-y-3">
                   <AnimatePresence>
                     {instantRequests.map((req) => {
-                      const dist = haversineDistance(provider.latitude, provider.longitude, req.customer_latitude, req.customer_longitude);
+                      const dist = provider.latitude === null || provider.longitude === null
+                        ? null
+                        : haversineDistance(provider.latitude, provider.longitude, req.customer_latitude, req.customer_longitude);
                       return (
                         <motion.div
                           key={req.id}
@@ -360,7 +364,7 @@ export default function ProviderPage() {
                               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                                 <span className="flex items-center gap-1"><User className="h-3.5 w-3.5" />{req.customer_name}</span>
                                 <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{req.customer_phone}</span>
-                                <span className="flex items-center gap-1"><Navigation className="h-3.5 w-3.5" />{dist.toFixed(1)}km away</span>
+                                <span className="flex items-center gap-1"><Navigation className="h-3.5 w-3.5" />{dist === null ? 'Location unavailable' : `${dist.toFixed(1)}km away`}</span>
                               </div>
                               {req.customer_address && (
                                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{req.customer_address}</p>
@@ -386,6 +390,7 @@ export default function ProviderPage() {
         {activeTab === 'services' && (
           <ServiceEditor
             services={catalogServices}
+            categories={catalogCategories}
             initialIds={providerServices.map((service) => service.id)}
             onSave={async (serviceIds) => {
               await saveProviderServices(provider.id, serviceIds);
@@ -417,12 +422,14 @@ export default function ProviderPage() {
 function ProviderOnboarding({
   userName,
   userEmail,
+  categories,
   services,
   initialError,
   onCreate,
 }: {
   userName: string;
   userEmail: string;
+  categories: ServiceCategory[];
   services: Service[];
   initialError: string;
   onCreate: (profile: ProviderProfileInput, serviceIds: string[]) => Promise<void>;
@@ -431,31 +438,21 @@ function ProviderOnboarding({
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(initialError);
 
-  const useLocation = () => {
-    if (!navigator.geolocation) {
-      setError('This browser does not support location detection. Enter coordinates manually.');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLatitude(String(position.coords.latitude));
-        setLongitude(String(position.coords.longitude));
-      },
-      () => setError('Location permission was not granted. Enter coordinates manually.'),
-      { timeout: 10000 },
-    );
-  };
-
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (selectedIds.length === 0) {
-      setError('Choose at least one service you provide.');
+    if (selectedCategoryIds.length === 0) {
+      setError('Choose at least one category you provide.');
+      return;
+    }
+    const serviceIds = services
+      .filter((service) => selectedCategoryIds.includes(service.category_id))
+      .map((service) => service.id);
+    if (serviceIds.length === 0) {
+      setError('No services are available for the selected categories.');
       return;
     }
     setSaving(true);
@@ -467,9 +464,7 @@ function ProviderOnboarding({
         phone: phone.trim(),
         address: address.trim(),
         city: city.trim(),
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-      }, selectedIds);
+      }, serviceIds);
     } catch (saveError) {
       const code = typeof saveError === 'object' && saveError && 'code' in saveError ? String(saveError.code) : '';
       setError(code.includes('permission-denied')
@@ -501,22 +496,11 @@ function ProviderOnboarding({
           <label className="block text-sm font-medium">City / service area
             <input required value={city} onChange={(event) => setCity(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm font-medium">Latitude
-              <input required type="number" step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
-            </label>
-            <label className="block text-sm font-medium">Longitude
-              <input required type="number" step="any" value={longitude} onChange={(event) => setLongitude(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
-            </label>
-          </div>
-          <button type="button" onClick={useLocation} className="h-10 rounded-lg border border-border px-3 text-sm font-medium hover:bg-secondary">
-            <MapPin className="mr-2 inline h-4 w-4" />Use my location
-          </button>
         </section>
         <section>
           <h2 className="mb-1 text-lg font-semibold">Services you provide</h2>
           <p className="mb-4 text-sm text-muted-foreground">Select every service you are qualified to take on.</p>
-          <ServiceChoices services={services} selectedIds={selectedIds} onChange={setSelectedIds} />
+          <ServiceCategoryChoices categories={categories} services={services} selectedIds={selectedCategoryIds} onChange={setSelectedCategoryIds} />
           {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
           <button type="submit" disabled={saving || services.length === 0} className="mt-5 h-11 w-full rounded-lg bg-foreground text-sm font-medium text-background disabled:opacity-50">
             {saving ? 'Saving profile…' : 'Create Provider Profile'}
@@ -529,10 +513,12 @@ function ProviderOnboarding({
 
 function ServiceEditor({
   services,
+  categories,
   initialIds,
   onSave,
 }: {
   services: Service[];
+  categories: ServiceCategory[];
   initialIds: string[];
   onSave: (serviceIds: string[]) => Promise<void>;
 }) {
@@ -561,7 +547,14 @@ function ServiceEditor({
     <section className="max-w-5xl">
       <h2 className="text-xl font-semibold">Services you offer</h2>
       <p className="mb-5 mt-1 text-sm text-muted-foreground">Only matched services appear in your incoming work feed.</p>
-      <ServiceChoices services={services} selectedIds={selectedIds} onChange={setSelectedIds} />
+      <ServiceCategoryChoices
+        categories={categories}
+        services={services}
+        selectedIds={categories
+          .filter((category) => services.some((service) => service.category_id === category.id && selectedIds.includes(service.id)))
+          .map((category) => category.id)}
+        onChange={(categoryIds) => setSelectedIds(services.filter((service) => categoryIds.includes(service.category_id)).map((service) => service.id))}
+      />
       {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
       <button onClick={save} disabled={saving} className="mt-5 h-11 rounded-lg bg-foreground px-5 text-sm font-medium text-background disabled:opacity-50">
         {saving ? 'Saving…' : 'Save services'}
@@ -570,40 +563,41 @@ function ServiceEditor({
   );
 }
 
-function ServiceChoices({
+function ServiceCategoryChoices({
+  categories,
   services,
   selectedIds,
   onChange,
 }: {
+  categories: ServiceCategory[];
   services: Service[];
   selectedIds: string[];
   onChange: (serviceIds: string[]) => void;
 }) {
-  const toggle = (serviceId: string) => {
-    onChange(selectedIds.includes(serviceId)
-      ? selectedIds.filter((id) => id !== serviceId)
-      : [...selectedIds, serviceId]);
+  const toggle = (categoryId: string) => {
+    onChange(selectedIds.includes(categoryId)
+      ? selectedIds.filter((id) => id !== categoryId)
+      : [...selectedIds, categoryId]);
   };
 
-  if (services.length === 0) return <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">No service options are available yet.</p>;
+  const availableCategories = categories.filter((category) => services.some((service) => service.category_id === category.id));
+  if (availableCategories.length === 0) return <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">No service options are available yet.</p>;
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      {services.map((service) => {
-        const selected = selectedIds.includes(service.id);
+      {availableCategories.map((category) => {
+        const selected = selectedIds.includes(category.id);
+        const categoryServices = services.filter((service) => service.category_id === category.id);
         return (
-          <label key={service.id} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors', selected ? 'border-foreground bg-secondary/60' : 'border-border hover:bg-secondary/30')}>
-            <input type="checkbox" checked={selected} onChange={() => toggle(service.id)} className="sr-only" />
-            <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
-              {service.image_url && <Image src={service.image_url} alt="" fill sizes="80px" className="object-cover" />}
-            </div>
+          <label key={category.id} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors', selected ? 'border-foreground bg-secondary/60' : 'border-border hover:bg-secondary/30')}>
+            <input type="checkbox" checked={selected} onChange={() => toggle(category.id)} className="sr-only" />
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
-                <span className="font-medium">{service.name}</span>
+                <span className="font-medium">{category.name}</span>
                 {selected && <Check className="h-4 w-4 shrink-0" aria-label="Selected" />}
               </div>
-              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{service.description}</p>
-              {service.is_sample && <p className="mt-1 text-[10px] font-medium text-amber-800">Sample option</p>}
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{category.description || categoryServices.map((service) => service.name).join(', ')}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">{categoryServices.length} available services</p>
             </div>
           </label>
         );

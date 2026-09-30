@@ -51,19 +51,8 @@ export function getFirebaseDb(): Firestore {
   return _db;
 }
 
-export const auth = new Proxy({} as Auth, {
-  get(_, prop) {
-    const a = getFirebaseAuth();
-    return Reflect.get(a, prop);
-  },
-});
-
-export const db = new Proxy({} as Firestore, {
-  get(_, prop) {
-    const d = getFirebaseDb();
-    return Reflect.get(d, prop);
-  },
-});
+export const auth: Auth = getFirebaseAuth();
+export const db: Firestore = getFirebaseDb();
 
 export default new Proxy({} as FirebaseApp, {
   get(_, prop) {

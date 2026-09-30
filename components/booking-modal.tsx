@@ -217,7 +217,9 @@ export function BookingModal({ service, userLocation, onClose, onBookingConfirme
                     {providers.length} providers near you offer this service.
                   </p>
                   {providers.map((p) => {
-                    const dist = userLocation ? haversineDistance(userLocation.lat, userLocation.lng, p.latitude, p.longitude) : 0;
+                    const dist = userLocation && p.latitude !== null && p.longitude !== null
+                      ? haversineDistance(userLocation.lat, userLocation.lng, p.latitude, p.longitude)
+                      : null;
                     return (
                       <div
                         key={p.id}
@@ -237,7 +239,7 @@ export function BookingModal({ service, userLocation, onClose, onBookingConfirme
                               </span>
                               <span className="flex items-center gap-1">
                                 <MapPin className="h-3.5 w-3.5" />
-                                {dist.toFixed(1)}km
+                                {dist === null ? 'Location unavailable' : `${dist.toFixed(1)}km`}
                               </span>
                               <span>{p.total_jobs} jobs</span>
                             </div>

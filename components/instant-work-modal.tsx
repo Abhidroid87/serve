@@ -101,8 +101,12 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
 
   const handleAccept = async () => {
     if (!request || !acceptedProvider) return;
+    if (!userLocation || acceptedProvider.latitude === null || acceptedProvider.longitude === null) {
+      setError('Live tracking is unavailable because the provider location is missing.');
+      return;
+    }
     setPhase('tracking');
-    const dist = userLocation ? haversineDistance(acceptedProvider.latitude, acceptedProvider.longitude, userLocation.lat, userLocation.lng) : 2;
+    const dist = haversineDistance(acceptedProvider.latitude, acceptedProvider.longitude, userLocation.lat, userLocation.lng);
     const etaMin = Math.max(3, Math.round(dist * 3));
     setEta(etaMin); setProviderProgress(0);
     trackingRef.current = setInterval(() => {
@@ -120,6 +124,9 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
   };
 
   if (!service) return null;
+  const acceptedDistance = acceptedProvider && userLocation && acceptedProvider.latitude !== null && acceptedProvider.longitude !== null
+    ? haversineDistance(acceptedProvider.latitude, acceptedProvider.longitude, userLocation.lat, userLocation.lng)
+    : null;
 
   return (
     <AnimatePresence>
@@ -251,11 +258,11 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> Distance</span>
-                      <span className="font-medium">{userLocation ? haversineDistance(acceptedProvider.latitude, acceptedProvider.longitude, userLocation.lat, userLocation.lng).toFixed(1) : '2.0'}km</span>
+                      <span className="font-medium">{acceptedDistance === null ? 'Unavailable' : `${acceptedDistance.toFixed(1)}km`}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground flex items-center gap-1"><Navigation className="h-3.5 w-3.5" /> ETA</span>
-                      <span className="font-medium">~{Math.max(3, Math.round((userLocation ? haversineDistance(acceptedProvider.latitude, acceptedProvider.longitude, userLocation.lat, userLocation.lng) : 2) * 3))} min</span>
+                      <span className="font-medium">{acceptedDistance === null ? 'Unavailable' : `~${Math.max(3, Math.round(acceptedDistance * 3))} min`}</span>
                     </div>
                   </div>
                   <button onClick={handleAccept} className="w-full max-w-sm h-11 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors">
@@ -267,13 +274,15 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
               {/* Phase: Tracking */}
               {phase === 'tracking' && acceptedProvider && (
                 <div className="space-y-4">
-                  <div className="relative h-48 rounded-xl overflow-hidden bg-secondary border border-border">
-                    <LiveMap
-                      providerLat={acceptedProvider.latitude} providerLng={acceptedProvider.longitude}
-                      customerLat={userLocation?.lat || 0} customerLng={userLocation?.lng || 0}
-                      progress={providerProgress}
-                    />
-                  </div>
+                  {acceptedProvider.latitude !== null && acceptedProvider.longitude !== null && userLocation ? (
+                    <div className="relative h-48 rounded-xl overflow-hidden bg-secondary border border-border">
+                      <LiveMap
+                        providerLat={acceptedProvider.latitude} providerLng={acceptedProvider.longitude}
+                        customerLat={userLocation.lat} customerLng={userLocation.lng}
+                        progress={providerProgress}
+                      />
+                    </div>
+                  ) : <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">Live map is unavailable without provider coordinates.</p>}
                   <div className="space-y-3">
                     <div>
                       <div className="flex justify-between text-sm mb-1">

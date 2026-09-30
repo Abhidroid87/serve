@@ -2,7 +2,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp, writeBatch,
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from './firebase';
+import { auth, db, isFirebaseConfigured } from './firebase';
 import { DEMO_CATEGORIES, DEMO_PROVIDER_AVAILABILITY, DEMO_PROVIDER_SERVICES, DEMO_PROVIDERS, DEMO_SERVICES } from './demo-data';
 import type {
   ServiceCategory, Service, Provider, ProviderAvailability,
@@ -166,6 +166,7 @@ export async function getProvidersForService(
     }
     if (userLat !== undefined && userLng !== undefined) {
       return providers.filter((p) => {
+        if (p.latitude === null || p.longitude === null) return true;
         const dist = haversineDistance(userLat, userLng, p.latitude, p.longitude);
         return dist <= Math.max(radiusKm, p.service_radius_km);
       });
@@ -192,8 +193,6 @@ export interface ProviderProfileInput {
   phone: string;
   address: string;
   city: string;
-  latitude: number;
-  longitude: number;
 }
 
 export async function createProviderProfile(
@@ -205,6 +204,8 @@ export async function createProviderProfile(
   if (serviceIds.length === 0) throw new Error('Choose at least one service to offer.');
   const provider: Omit<Provider, 'id'> = {
     ...profile,
+    latitude: null,
+    longitude: null,
     email,
     auth_uid: uid,
     avatar_url: null,
@@ -336,7 +337,7 @@ export async function getCheckedInProviders(
   const providers = await getProvidersForService(serviceId);
   return providers
     .filter((p) => p.is_checked_in && p.is_verified)
-    .filter((p) => haversineDistance(userLat, userLng, p.latitude, p.longitude) <= radiusKm);
+    .filter((p) => p.latitude !== null && p.longitude !== null && haversineDistance(userLat, userLng, p.latitude, p.longitude) <= radiusKm);
 }
 
 export async function getInstantRequestById(id: string): Promise<InstantRequest | null> {
@@ -391,6 +392,127 @@ export async function getAllProviders(): Promise<Provider[]> {
   }
 }
 
+export interface ModerationEnquiry {
+  id: string;
+  source: 'query' | 'booking' | 'instant';
+  customerName: string;
+  customerPhone: string;
+  serviceName: string;
+  address: string;
+  status: string;
+  createdAt: string;
+  bookingId?: string;
+  assignedProviderId?: string | null;
+  serviceId?: string;
+}
+
+export interface AdminModerationData {
+  providers: Provider[];
+  services: Service[];
+  bookings: Booking[];
+  requests: InstantRequest[];
+  enquiries: ModerationEnquiry[];
+  providerServiceLinks: { provider_id: string; service_id: string }[];
+}
+
+export async function getAdminModerationData(): Promise<AdminModerationData> {
+  const [providerSnap, serviceSnap, bookingSnap, requestSnap, querySnap, linkSnap] = await Promise.all([
+    getDocs(collection(db, PROVIDERS)),
+    getDocs(collection(db, SERVICES)),
+    getDocs(collection(db, BOOKINGS)),
+    getDocs(collection(db, INSTANT_REQUESTS)),
+    getDocs(collection(db, 'queries')),
+    getDocs(collection(db, PROVIDER_SERVICES)),
+  ]);
+  const providers = providerSnap.docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() } as Provider));
+  const services = serviceSnap.docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() } as Service));
+  const providersById = new Map(providers.map((provider) => [provider.id, provider]));
+  const servicesById = new Map(services.map((service) => [service.id, service]));
+  const bookings = bookingSnap.docs.map((snapshot) => {
+    const booking = { id: snapshot.id, ...snapshot.data() } as Booking;
+    booking.provider = providersById.get(booking.provider_id);
+    booking.service = servicesById.get(booking.service_id);
+    return booking;
+  });
+  const requests = requestSnap.docs.map((snapshot) => {
+    const request = { id: snapshot.id, ...snapshot.data() } as InstantRequest;
+    request.provider = request.provider_id ? providersById.get(request.provider_id) : undefined;
+    request.service = servicesById.get(request.service_id);
+    return request;
+  });
+  const queryEnquiries: ModerationEnquiry[] = querySnap.docs.map((snapshot) => {
+    const row = snapshot.data();
+    const serviceId = String(row.service_id || '');
+    return {
+      id: snapshot.id,
+      source: 'query',
+      customerName: String(row.customer_name || row.name || row.full_name || 'Customer'),
+      customerPhone: String(row.customer_phone || row.phone || ''),
+      serviceName: servicesById.get(serviceId)?.name || String(row.service_name || row.category || 'Service enquiry'),
+      address: String(row.customer_address || row.address || ''),
+      status: String(row.status || 'new'),
+      createdAt: String(row.created_at || ''),
+      serviceId,
+    };
+  });
+  const bookingEnquiries: ModerationEnquiry[] = bookings.map((booking) => ({
+    id: `booking-${booking.id}`,
+    source: 'booking',
+    customerName: booking.customer_name,
+    customerPhone: booking.customer_phone,
+    serviceName: booking.service?.name || 'Service',
+    address: booking.customer_address || '',
+    status: booking.status,
+    createdAt: booking.created_at,
+    bookingId: booking.id,
+    assignedProviderId: booking.provider_id,
+    serviceId: booking.service_id,
+  }));
+  const requestEnquiries: ModerationEnquiry[] = requests.map((request) => ({
+    id: `instant-${request.id}`,
+    source: 'instant',
+    customerName: request.customer_name,
+    customerPhone: request.customer_phone,
+    serviceName: request.service?.name || 'Instant service',
+    address: request.customer_address || '',
+    status: request.status,
+    createdAt: request.created_at,
+    assignedProviderId: request.provider_id,
+    serviceId: request.service_id,
+  }));
+  const providerServiceLinks = linkSnap.docs.map((snapshot) => ({
+    provider_id: String(snapshot.data().provider_id || ''),
+    service_id: String(snapshot.data().service_id || ''),
+  }));
+  const enquiries = [...queryEnquiries, ...bookingEnquiries, ...requestEnquiries]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return { providers, services, bookings, requests, enquiries, providerServiceLinks };
+}
+
+export async function updateProviderModeration(providerId: string, approved: boolean): Promise<void> {
+  await updateDoc(doc(db, PROVIDERS, providerId), {
+    is_verified: approved,
+    is_rejected: !approved,
+    moderated_at: new Date().toISOString(),
+  });
+}
+
+export async function assignBookingProvider(bookingId: string, providerId: string): Promise<void> {
+  const bookingSnap = await getDoc(doc(db, BOOKINGS, bookingId));
+  if (!bookingSnap.exists()) throw new Error('Booking no longer exists.');
+  const [providerSnap, relationSnap] = await Promise.all([
+    getDoc(doc(db, PROVIDERS, providerId)),
+    getDocs(query(
+      collection(db, PROVIDER_SERVICES),
+      where('provider_id', '==', providerId),
+      where('service_id', '==', bookingSnap.data().service_id),
+    )),
+  ]);
+  if (!providerSnap.exists() || providerSnap.data().is_verified !== true) throw new Error('Choose an approved provider.');
+  if (relationSnap.empty) throw new Error('This provider is not qualified for the requested service.');
+  await updateDoc(bookingSnap.ref, { provider_id: providerId, assigned_at: new Date().toISOString() });
+}
+
 // ============ REAL-TIME LISTENERS ============
 
 export function onInstantRequestSnapshot(
@@ -438,9 +560,12 @@ export async function createBooking(params: {
   total_price: number;
   pricing_breakdown: PricingBreakdown;
 }): Promise<Booking> {
+  const customerUid = auth.currentUser?.uid;
+  if (!customerUid) throw new Error('Sign in before creating a booking.');
   const otp = generateOTP();
   const ref = await addDoc(collection(db, BOOKINGS), {
     ...params,
+    customer_uid: customerUid,
     status: 'confirmed',
     otp_code: otp,
     created_at: new Date().toISOString(),
@@ -450,6 +575,7 @@ export async function createBooking(params: {
   });
   await addDoc(collection(db, TRANSACTIONS), {
     booking_id: ref.id,
+    customer_uid: customerUid,
     amount: params.total_price,
     status: 'held',
     payment_method: 'card',
@@ -495,8 +621,11 @@ export async function createInstantRequest(params: {
   customer_latitude: number;
   customer_longitude: number;
 }): Promise<InstantRequest> {
+  const customerUid = auth.currentUser?.uid;
+  if (!customerUid) throw new Error('Sign in before creating an instant request.');
   const ref = await addDoc(collection(db, INSTANT_REQUESTS), {
     ...params,
+    customer_uid: customerUid,
     status: 'broadcasting',
     provider_id: null,
     accepted_at: null,

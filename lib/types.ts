@@ -48,8 +48,8 @@ export interface Provider {
   phone: string | null;
   email: string | null;
   bio: string | null;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   address: string | null;
   locality: string | null;
   city: string | null;
@@ -61,6 +61,7 @@ export interface Provider {
   total_jobs: number;
   created_at: string;
   auth_uid?: string;
+  is_rejected?: boolean;
 }
 
 export interface ProviderService {
@@ -96,6 +97,7 @@ export interface PricingBreakdown {
 export interface Booking {
   id: string;
   provider_id: string;
+  customer_uid?: string;
   service_id: string;
   customer_name: string;
   customer_phone: string;
@@ -129,6 +131,7 @@ export interface Transaction {
 
 export interface InstantRequest {
   id: string;
+  customer_uid?: string;
   service_id: string;
   customer_name: string;
   customer_phone: string;
