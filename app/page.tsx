@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Zap, Wrench, ShieldCheck, CreditCard, Star, ArrowRight, CheckCircle2, Lock } from 'lucide-react';
 import * as Icons from 'lucide-react';
@@ -47,7 +48,11 @@ export default function Home() {
       const cache: Record<string, Provider[]> = {};
       try {
         for (const s of services) {
-          cache[s.id] = await getProvidersForService(s.id, location?.lat, location?.lng, 10);
+          const providers = await getProvidersForService(s.id, location?.lat, location?.lng, 10);
+          cache[s.id] = location && location.lat === undefined
+            ? providers.filter((provider) => [provider.city, provider.locality, provider.address]
+              .some((area) => area?.toLowerCase().includes(location.locality.toLowerCase())))
+            : providers;
         }
         setProviderCache(cache);
         setProviderNotice(null);
@@ -297,8 +302,9 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-border mt-12 py-6">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-muted-foreground">
+        <div className="max-w-7xl mx-auto flex items-center justify-between px-4 text-xs text-muted-foreground">
           <p className="editorial-tracking">Kehi — Local Services Marketplace</p>
+          <Link href="/admin/login/" className="transition-colors hover:text-foreground">Admin</Link>
         </div>
       </footer>
 

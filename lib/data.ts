@@ -2,6 +2,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp, writeBatch,
 } from 'firebase/firestore';
+import { getIdTokenResult } from 'firebase/auth';
 import { auth, db, isFirebaseConfigured } from './firebase';
 import { DEMO_CATEGORIES, DEMO_PROVIDER_AVAILABILITY, DEMO_PROVIDER_SERVICES, DEMO_PROVIDERS, DEMO_SERVICES } from './demo-data';
 import type {
@@ -19,6 +20,22 @@ const BOOKINGS = 'bookings';
 const TRANSACTIONS = 'transactions';
 const INSTANT_REQUESTS = 'instant_requests';
 const REVIEWS = 'reviews';
+
+export async function hasAdminAccess(uid: string): Promise<boolean> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== uid) return false;
+
+  try {
+    const token = await getIdTokenResult(currentUser, true);
+    if (token.claims.admin === true) return true;
+    const userSnapshot = await getDoc(doc(db, 'users', uid));
+    if (!userSnapshot.exists()) return false;
+    const userData = userSnapshot.data();
+    return userData.role === 'admin' || userData.isAdmin === true;
+  } catch {
+    return false;
+  }
+}
 
 const DEMO_SERVICE_IMAGES: Record<string, string> = {
   plumbing: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?auto=format&fit=crop&w=960&q=80',
@@ -422,6 +439,23 @@ export interface AdminModerationData {
   providerServiceLinks: { provider_id: string; service_id: string }[];
 }
 
+export interface ProviderEnquiry {
+  id: string;
+  service_id: string;
+  customer_name: string;
+  customer_phone: string;
+  message: string;
+  status: string;
+  created_at: string;
+}
+
+export async function getProviderEnquiries(providerId: string): Promise<ProviderEnquiry[]> {
+  const snap = await getDocs(query(collection(db, 'queries'), where('provider_id', '==', providerId)));
+  return snap.docs
+    .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() } as ProviderEnquiry))
+    .sort((left, right) => right.created_at.localeCompare(left.created_at));
+}
+
 export async function getAdminModerationData(): Promise<AdminModerationData> {
   const [providerSnap, serviceSnap, bookingSnap, requestSnap, querySnap, linkSnap] = await Promise.all([
     getDocs(collection(db, PROVIDERS)),
@@ -707,6 +741,24 @@ export async function createReview(params: {
   });
   const d = await getDoc(ref);
   return { id: d.id, ...d.data() } as Review;
+}
+
+export async function createProviderEnquiry(params: {
+  provider_id: string;
+  service_id: string;
+  customer_name: string;
+  customer_phone: string;
+  message: string;
+}): Promise<string> {
+  const customerUid = auth.currentUser?.uid;
+  if (!customerUid) throw new Error('Sign in to send a provider enquiry.');
+  const ref = await addDoc(collection(db, 'queries'), {
+    ...params,
+    customer_uid: customerUid,
+    status: 'new',
+    created_at: new Date().toISOString(),
+  });
+  return ref.id;
 }
 
 // ============ UTILITIES ============

@@ -1,6 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, setDoc, collection, getDocs } from 'firebase/firestore';
+import nextEnv from '@next/env';
+
+const { loadEnvConfig } = nextEnv;
+loadEnvConfig(process.cwd());
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
@@ -63,11 +67,31 @@ const CATEGORIES = [
     image_url: null,
     created_at: new Date().toISOString(),
   },
+  {
+    id: 'sanitary',
+    name: 'Sanitary',
+    slug: 'sanitary',
+    icon: 'Bath',
+    description: 'Sanitary fittings and pipe maintenance.',
+    display_order: 6,
+    image_url: null,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'painting',
+    name: 'Painting',
+    slug: 'painting',
+    icon: 'Paintbrush2',
+    description: 'Interior and exterior wall painting.',
+    display_order: 7,
+    image_url: null,
+    created_at: new Date().toISOString(),
+  },
 ];
 
 const SERVICES = [
   {
-    id: 'svc-plumber-fix',
+    id: 'svc-plumbing-fix',
     category_id: 'plumbing',
     name: 'Plumber Fix',
     slug: 'plumber-fix',
@@ -77,7 +101,7 @@ const SERVICES = [
     unit_label: null,
     estimated_duration_mins: 60,
     icon: 'Wrench',
-    image_url: null,
+    image_url: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?auto=format&fit=crop&w=960&q=80',
     is_active: true,
     created_at: new Date().toISOString(),
   },
@@ -92,7 +116,7 @@ const SERVICES = [
     unit_label: null,
     estimated_duration_mins: 75,
     icon: 'Zap',
-    image_url: null,
+    image_url: 'https://images.unsplash.com/photo-1621905251918-48416bd8575a?auto=format&fit=crop&w=960&q=80',
     is_active: true,
     created_at: new Date().toISOString(),
   },
@@ -107,22 +131,22 @@ const SERVICES = [
     unit_label: 'hour',
     estimated_duration_mins: 90,
     icon: 'Hammer',
-    image_url: null,
+    image_url: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&w=960&q=80',
     is_active: true,
     created_at: new Date().toISOString(),
   },
   {
-    id: 'svc-home-cleaning',
+    id: 'svc-cleaning',
     category_id: 'cleaning',
     name: 'Home Cleaning',
     slug: 'home-cleaning',
     description: 'General home cleaning and deep cleaning for rooms and kitchens.',
     pricing_type: 'flat',
-    base_price: 129,
+    base_price: 299,
     unit_label: null,
     estimated_duration_mins: 120,
     icon: 'Sparkles',
-    image_url: null,
+    image_url: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=960&q=80',
     is_active: true,
     created_at: new Date().toISOString(),
   },
@@ -133,11 +157,41 @@ const SERVICES = [
     slug: 'ac-repair',
     description: 'Cooling diagnostics and AC maintenance for homes and shops.',
     pricing_type: 'flat',
-    base_price: 189,
+    base_price: 249,
     unit_label: null,
     estimated_duration_mins: 90,
     icon: 'Wind',
-    image_url: null,
+    image_url: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=960&q=80',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'svc-sanitary-installation',
+    category_id: 'sanitary',
+    name: 'Sanitary',
+    slug: 'sanitary-maintenance',
+    description: 'Sanitary fittings and pipe maintenance.',
+    pricing_type: 'flat',
+    base_price: 199,
+    unit_label: null,
+    estimated_duration_mins: 90,
+    icon: 'Bath',
+    image_url: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?auto=format&fit=crop&w=960&q=80',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'svc-painting',
+    category_id: 'painting',
+    name: 'Painting',
+    slug: 'painting',
+    description: 'Interior and exterior wall painting.',
+    pricing_type: 'flat',
+    base_price: 499,
+    unit_label: null,
+    estimated_duration_mins: 180,
+    icon: 'Paintbrush2',
+    image_url: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&w=960&q=80',
     is_active: true,
     created_at: new Date().toISOString(),
   },
@@ -252,10 +306,10 @@ const PROVIDERS = [
 ];
 
 const PROVIDER_SERVICES = [
-  { provider_id: 'prov-1', service_id: 'svc-plumber-fix' },
+  { provider_id: 'prov-1', service_id: 'svc-plumbing-fix' },
   { provider_id: 'prov-2', service_id: 'svc-electrician' },
   { provider_id: 'prov-3', service_id: 'svc-carpenter' },
-  { provider_id: 'prov-4', service_id: 'svc-home-cleaning' },
+  { provider_id: 'prov-4', service_id: 'svc-cleaning' },
   { provider_id: 'prov-5', service_id: 'svc-ac-repair' },
 ];
 
@@ -267,13 +321,12 @@ const PROVIDER_AVAILABILITY = [
   { id: 'a-5', provider_id: 'prov-5', day_of_week: 3, start_time: '08:00', end_time: '16:00', max_simultaneous_jobs: 2 },
 ];
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+let auth;
+let db;
 
-async function seedCollection(name, data) {
+async function seedCollection(name, data, merge = false) {
   for (const item of data) {
-    await setDoc(doc(db, name, item.id), item);
+    await setDoc(doc(db, name, item.id), item, { merge });
   }
 }
 
@@ -288,30 +341,42 @@ async function main() {
     throw new Error('Missing Firebase project config. Check .env.local or the deployed environment variables.');
   }
 
+  const app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
   await signInWithEmailAndPassword(auth, email, password);
-
-  await seedCollection('service_categories', CATEGORIES);
-  await seedCollection('services', SERVICES);
-  await seedCollection('providers', PROVIDERS);
-
-  for (const item of PROVIDER_SERVICES) {
-    await setDoc(doc(db, 'provider_services', `${item.provider_id}_${item.service_id}`), {
-      id: `${item.provider_id}_${item.service_id}`,
-      provider_id: item.provider_id,
-      service_id: item.service_id,
-      custom_price: null,
-      created_at: new Date().toISOString(),
-    });
+  const token = await auth.currentUser?.getIdTokenResult(true);
+  if (token?.claims.admin !== true) {
+    throw new Error('The seed account must have the Firebase admin custom claim.');
   }
 
-  for (const item of PROVIDER_AVAILABILITY) {
-    await setDoc(doc(db, 'provider_availability', item.id), {
-      ...item,
-      created_at: new Date().toISOString(),
-    });
+  await seedCollection('service_categories', CATEGORIES, true);
+  await seedCollection('services', SERVICES, true);
+
+  if (process.env.FIREBASE_SEED_DEMO_PROVIDERS === 'true') {
+    await seedCollection('providers', PROVIDERS, true);
+
+    for (const item of PROVIDER_SERVICES) {
+      await setDoc(doc(db, 'provider_services', `${item.provider_id}_${item.service_id}`), {
+        id: `${item.provider_id}_${item.service_id}`,
+        provider_id: item.provider_id,
+        service_id: item.service_id,
+        custom_price: null,
+        created_at: new Date().toISOString(),
+      }, { merge: true });
+    }
+
+    for (const item of PROVIDER_AVAILABILITY) {
+      await setDoc(doc(db, 'provider_availability', item.id), {
+        ...item,
+        created_at: new Date().toISOString(),
+      }, { merge: true });
+    }
   }
 
-  console.log('Firestore seed complete');
+  console.log(process.env.FIREBASE_SEED_DEMO_PROVIDERS === 'true'
+    ? 'Firestore catalog and demo provider seed complete'
+    : 'Firestore catalog seed complete');
 }
 
 main().catch((error) => {

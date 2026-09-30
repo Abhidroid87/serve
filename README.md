@@ -83,9 +83,10 @@ npm install
 1. Go to [Firebase Console](https://console.firebase.google.com)
 2. Create a new project (or use an existing one)
 3. Enable **Authentication** → Sign-in method → **Email/Password**
-4. Enable **Cloud Firestore** → Start in **test mode** (or production mode with rules below)
-5. Go to Project Settings → General → Your apps → Web app
-6. Register a web app and copy the config values
+4. Enable **Authentication** → Sign-in method → **Google** to offer Gmail sign-in
+5. Enable **Cloud Firestore** → Start in **test mode** (or production mode with rules below)
+6. Go to Project Settings → General → Your apps → Web app
+7. Register a web app and copy the config values
 
 ### 3. Add Environment Variables
 
@@ -109,17 +110,17 @@ firebase use <project-id>
 firebase deploy --only firestore:rules
 ```
 
-Grant dashboard access from a trusted server or one-off Admin SDK environment, never from browser code:
+Grant dashboard access from a trusted server or one-off Admin SDK environment, never from browser code. The portal accepts a Firebase `admin` custom claim or a protected `users/{uid}` document with `role: "admin"` (or `isAdmin: true`):
 
 ```javascript
 await admin.auth().setCustomUserClaims(uid, { admin: true });
 ```
 
-After the claim is set, sign out and back in (or refresh the ID token). The moderation console is available at `/admin/` (or `/serve/admin/` when deployed with the `/serve` base path). It includes provider approval/rejection, customer enquiry logs, and manual assignment to a verified provider qualified for the requested service.
+The portal is available at `/admin/login/` (or `/serve/admin/login/` on GitHub Pages). Signed-in users without an admin role are denied; `/admin/` redirects unauthenticated users to login. It includes provider approval/rejection, customer enquiry logs, and manual assignment to a verified provider qualified for the requested service. The marketplace footer includes a discreet Admin link.
 
 ### 5. Seed the Database
 
-Add initial data to Firestore. You can do this via the Firebase Console or a script. The collections needed are:
+Add initial data to Firestore. `npm run seed:firebase` merges the standard categories and service rows from `scripts/seed-firestore.mjs` without overwriting existing provider profiles. The configured seed account must be signed in with email/password and have the Firebase admin custom claim. To also add the sample providers, service links, and availability, explicitly set `FIREBASE_SEED_DEMO_PROVIDERS=true`; those records are intended for demo projects only. The categories and services needed are:
 
 - `service_categories`: `{ name, slug, icon, description, display_order, image_url, created_at }`
 - `services`: `{ category_id, name, slug, description, pricing_type, base_price, unit_label, estimated_duration_mins, icon, image_url, is_active, created_at }`
@@ -135,7 +136,7 @@ The `icon` field stores a Lucide React icon name (e.g., `"Wind"`, `"Droplets"`, 
 npm run dev
 ```
 
-Visit `http://localhost:3000` for the customer app, `http://localhost:3000/provider` for the provider dashboard, and `http://localhost:3000/admin` for moderation (requires the admin claim).
+Visit `http://localhost:3000` for the customer app, `http://localhost:3000/provider` for the provider dashboard, and `http://localhost:3000/admin/login` for administrator sign-in.
 
 ## Build
 

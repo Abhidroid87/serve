@@ -5,8 +5,8 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export interface UserLocation {
-  lat: number;
-  lng: number;
+  lat?: number;
+  lng?: number;
   locality: string;
 }
 
@@ -18,54 +18,51 @@ interface LocationBarProps {
   searchPlaceholder?: string;
 }
 
-const LOCALITIES = [
-  { name: 'Downtown', lat: 12.9716, lng: 77.5946 },
-  { name: 'Riverside', lat: 12.965, lng: 77.598 },
-  { name: 'Northside', lat: 12.985, lng: 77.605 },
-  { name: 'Eastgate', lat: 12.978, lng: 77.612 },
-  { name: 'Westbrook', lat: 12.972, lng: 77.585 },
-  { name: 'Midtown', lat: 12.968, lng: 77.602 },
-];
-
 export function detectLocation(): Promise<UserLocation> {
-  return new Promise((resolve) => {
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-          let nearest = LOCALITIES[0];
-          let minDist = Infinity;
-          for (const loc of LOCALITIES) {
-            const dist = Math.sqrt(
-              Math.pow(loc.lat - latitude, 2) + Math.pow(loc.lng - longitude, 2),
-            );
-            if (dist < minDist) {
-              minDist = dist;
-              nearest = loc;
-            }
-          }
-          resolve({ lat: nearest.lat, lng: nearest.lng, locality: nearest.name });
-        },
-        () => {
-          resolve({ lat: LOCALITIES[0].lat, lng: LOCALITIES[0].lng, locality: LOCALITIES[0].name });
-        },
-        { timeout: 5000 },
-      );
-    } else {
-      resolve({ lat: LOCALITIES[0].lat, lng: LOCALITIES[0].lng, locality: LOCALITIES[0].name });
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      reject(new Error('Location detection is not supported by this browser.'));
+      return;
     }
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => resolve({
+        lat: coords.latitude,
+        lng: coords.longitude,
+        locality: 'Current location',
+      }),
+      (error) => reject(new Error(error.code === error.PERMISSION_DENIED
+        ? 'Location permission was denied. Enter a city instead.'
+        : 'Could not detect your location. Enter a city instead.')),
+      { timeout: 10000, maximumAge: 60000 },
+    );
   });
 }
 
 export function LocationBar({ location, onLocationChange, searchQuery, onSearchChange, searchPlaceholder = 'Search services...' }: LocationBarProps) {
   const [detecting, setDetecting] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [manualCity, setManualCity] = useState('');
+  const [locationError, setLocationError] = useState('');
 
   const handleDetect = async () => {
     setDetecting(true);
-    const loc = await detectLocation();
-    onLocationChange(loc);
-    setDetecting(false);
+    setLocationError('');
+    try {
+      onLocationChange(await detectLocation());
+      setShowDropdown(false);
+    } catch (error) {
+      setLocationError(error instanceof Error ? error.message : 'Could not detect your location.');
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const useManualCity = () => {
+    const city = manualCity.trim();
+    if (!city) return;
+    onLocationChange({ locality: city });
+    setLocationError('');
+    setShowDropdown(false);
   };
 
   return (
@@ -82,7 +79,12 @@ export function LocationBar({ location, onLocationChange, searchQuery, onSearchC
       </div>
       <div className="relative">
         <button
-          onClick={() => setShowDropdown(!showDropdown)}
+          onClick={() => {
+            setShowDropdown(!showDropdown);
+            setManualCity(location?.lat === undefined ? location?.locality || '' : '');
+            setLocationError('');
+          }}
+          aria-expanded={showDropdown}
           className="flex items-center gap-2 h-11 px-4 rounded-lg border border-border bg-background text-sm font-medium hover:bg-secondary transition-colors w-full sm:w-auto"
         >
           <MapPin className="h-4 w-4" />
@@ -91,28 +93,23 @@ export function LocationBar({ location, onLocationChange, searchQuery, onSearchC
         {showDropdown && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-            <div className="absolute right-0 mt-2 w-56 rounded-lg border border-border bg-card shadow-lg z-50 overflow-hidden">
+            <div className="absolute right-0 mt-2 w-72 rounded-lg border border-border bg-card shadow-lg z-50 p-3">
               <button
                 onClick={handleDetect}
                 disabled={detecting}
-                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium hover:bg-secondary border-b border-border"
+                className="flex h-10 items-center gap-2 w-full px-3 text-sm font-medium hover:bg-secondary"
               >
                 <Crosshair className={cn('h-4 w-4', detecting && 'animate-spin')} />
                 {detecting ? 'Detecting...' : 'Use my location'}
               </button>
-              {LOCALITIES.map((loc) => (
-                <button
-                  key={loc.name}
-                  onClick={() => {
-                    onLocationChange({ lat: loc.lat, lng: loc.lng, locality: loc.name });
-                    setShowDropdown(false);
-                  }}
-                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-secondary transition-colors text-left"
-                >
-                  <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                  {loc.name}
-                </button>
-              ))}
+              <form onSubmit={(event) => { event.preventDefault(); useManualCity(); }} className="mt-2 border-t border-border pt-3">
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="manual-city">Search or enter a city</label>
+                <div className="flex gap-2">
+                  <input id="manual-city" value={manualCity} onChange={(event) => setManualCity(event.target.value)} placeholder="City or service area" className="h-10 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-foreground/40" />
+                  <button type="submit" disabled={!manualCity.trim()} className="h-10 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:opacity-40">Apply</button>
+                </div>
+              </form>
+              {locationError && <p role="alert" className="mt-2 text-xs text-destructive">{locationError}</p>}
             </div>
           </>
         )}

@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Mail, Lock, ArrowRight, User } from 'lucide-react';
+import { X, Mail, Lock, ArrowRight, Chrome } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
 export function AuthModal() {
-  const { showAuthModal, setShowAuthModal, signIn, signUp, pendingAction } = useAuth();
+  const { showAuthModal, setShowAuthModal, signIn, signInWithGoogle, signUp, pendingAction } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,6 +36,15 @@ export function AuthModal() {
     } else {
       setShowAuthModal(false);
     }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError('');
+    const result = await signInWithGoogle();
+    setLoading(false);
+    if (result.error) setError(result.error);
+    else setShowAuthModal(false);
   };
 
   return (
@@ -137,6 +146,14 @@ export function AuthModal() {
                   )}
                 </button>
               </form>
+
+              <div className="relative my-5">
+                <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+                <div className="relative flex justify-center"><span className="bg-card px-3 text-xs text-muted-foreground">or</span></div>
+              </div>
+              <button type="button" onClick={handleGoogleSignIn} disabled={loading} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50">
+                <Chrome className="h-4 w-4" /> Continue with Google
+              </button>
 
               <div className="mt-5 text-center text-sm text-muted-foreground">
                 {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
