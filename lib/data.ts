@@ -2,8 +2,8 @@ import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp, writeBatch,
 } from 'firebase/firestore';
-import { db } from './firebase';
-import { sampleCategories, sampleServices } from './catalog';
+import { db, isFirebaseConfigured } from './firebase';
+import { DEMO_CATEGORIES, DEMO_PROVIDER_AVAILABILITY, DEMO_PROVIDER_SERVICES, DEMO_PROVIDERS, DEMO_SERVICES } from './demo-data';
 import type {
   ServiceCategory, Service, Provider, ProviderAvailability,
   Booking, PricingBreakdown, TimeSlot, InstantRequest, Transaction, Review,
@@ -20,6 +20,24 @@ const TRANSACTIONS = 'transactions';
 const INSTANT_REQUESTS = 'instant_requests';
 const REVIEWS = 'reviews';
 
+const DEMO_SERVICE_IMAGES: Record<string, string> = {
+  plumbing: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?auto=format&fit=crop&w=960&q=80',
+  electrical: 'https://images.unsplash.com/photo-1621905251918-48416bd8575a?auto=format&fit=crop&w=960&q=80',
+  carpentry: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&w=960&q=80',
+  cleaning: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=960&q=80',
+  hvac: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=960&q=80',
+  painting: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&w=960&q=80',
+};
+
+function getDemoServices(): Service[] {
+  return DEMO_SERVICES.map((service) => ({
+    ...service,
+    image_url: service.image_url || DEMO_SERVICE_IMAGES[service.category_id] || null,
+    is_sample: true,
+    category: DEMO_CATEGORIES.find((category) => category.id === service.category_id),
+  }));
+}
+
 export interface MarketplaceCatalog {
   categories: ServiceCategory[];
   services: Service[];
@@ -28,6 +46,17 @@ export interface MarketplaceCatalog {
 }
 
 export async function getMarketplaceCatalog(): Promise<MarketplaceCatalog> {
+  const demoCatalog = (notice: string): MarketplaceCatalog => ({
+    categories: DEMO_CATEGORIES,
+    services: getDemoServices(),
+    source: 'sample',
+    notice,
+  });
+
+  if (!isFirebaseConfigured()) {
+    return demoCatalog('Firebase is not configured. Showing sample trades and indicative prices; bookings are disabled for these examples.');
+  }
+
   try {
     const [categorySnap, serviceSnap] = await Promise.all([
       getDocs(collection(db, CATEGORIES)),
@@ -43,41 +72,42 @@ export async function getMarketplaceCatalog(): Promise<MarketplaceCatalog> {
       }));
 
     if (services.length > 0) {
-      return { categories, services, source: 'firestore', notice: null };
+      return { categories: categories.length ? categories : DEMO_CATEGORIES, services, source: 'firestore', notice: null };
     }
-
-    return {
-      categories: sampleCategories,
-      services: sampleServices,
-      source: 'sample',
-      notice: 'Your Firebase catalog has no services yet. Showing sample trades and indicative prices; bookings are disabled for these examples.',
-    };
+    return demoCatalog('Your Firebase catalog has no services yet. Showing sample trades and indicative prices; bookings are disabled for these examples.');
   } catch (error) {
     const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : 'unavailable';
-    return {
-      categories: sampleCategories,
-      services: sampleServices,
-      source: 'sample',
-      notice: `Firebase could not load the service catalog (${code}). Showing sample trades and indicative prices; bookings are disabled for these examples.`,
-    };
+    return demoCatalog(`Firebase could not load the service catalog (${code}). Showing sample trades and indicative prices; bookings are disabled for these examples.`);
   }
 }
 
 // ============ READS ============
 
 export async function getCategories(): Promise<ServiceCategory[]> {
-  const snap = await getDocs(collection(db, CATEGORIES));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ServiceCategory));
+  try {
+    const snap = await getDocs(collection(db, CATEGORIES));
+    const categories = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ServiceCategory));
+    return categories.length > 0 ? categories : DEMO_CATEGORIES;
+  } catch (error) {
+    return DEMO_CATEGORIES;
+  }
 }
 
 export async function getAllServices(): Promise<Service[]> {
-  const snap = await getDocs(collection(db, SERVICES));
-  const services = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Service));
-  const cats = await getCategories();
-  return services.map((s) => ({
-    ...s,
-    category: cats.find((c) => c.id === s.category_id),
-  }));
+  try {
+    const snap = await getDocs(collection(db, SERVICES));
+    const services = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Service));
+    if (services.length === 0) {
+      return getDemoServices();
+    }
+    const cats = await getCategories();
+    return services.map((s) => ({
+      ...s,
+      category: cats.find((c) => c.id === s.category_id),
+    }));
+  } catch (error) {
+    return getDemoServices();
+  }
 }
 
 export async function getServicesByCategory(categoryId?: string, searchQuery?: string): Promise<Service[]> {
@@ -112,21 +142,42 @@ export async function getProvidersForService(
   userLng?: number,
   radiusKm: number = 5,
 ): Promise<Provider[]> {
-  const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('service_id', '==', serviceId)));
-  const providerIds = snap.docs.map((d) => (d.data() as { provider_id: string }).provider_id);
-  if (providerIds.length === 0) return [];
-  const providers: Provider[] = [];
-  for (const pid of providerIds) {
-    const pd = await getDoc(doc(db, PROVIDERS, pid));
-    if (pd.exists()) providers.push({ id: pd.id, ...pd.data() } as Provider);
+  try {
+    const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('service_id', '==', serviceId)));
+    const providerIds = snap.docs.map((d) => (d.data() as { provider_id: string }).provider_id);
+    if (providerIds.length === 0) {
+      const demoProviders = DEMO_PROVIDER_SERVICES
+        .filter((ps) => ps.service_id === serviceId)
+        .map((ps) => DEMO_PROVIDERS.find((p) => p.id === ps.provider_id))
+        .filter((p): p is Provider => Boolean(p));
+      return demoProviders;
+    }
+    const providers: Provider[] = [];
+    for (const pid of providerIds) {
+      const pd = await getDoc(doc(db, PROVIDERS, pid));
+      if (pd.exists()) providers.push({ id: pd.id, ...pd.data() } as Provider);
+    }
+    if (providers.length === 0) {
+      const demoProviders = DEMO_PROVIDER_SERVICES
+        .filter((ps) => ps.service_id === serviceId)
+        .map((ps) => DEMO_PROVIDERS.find((p) => p.id === ps.provider_id))
+        .filter((p): p is Provider => Boolean(p));
+      return demoProviders;
+    }
+    if (userLat !== undefined && userLng !== undefined) {
+      return providers.filter((p) => {
+        const dist = haversineDistance(userLat, userLng, p.latitude, p.longitude);
+        return dist <= Math.max(radiusKm, p.service_radius_km);
+      });
+    }
+    return providers;
+  } catch (error) {
+    const demoProviders = DEMO_PROVIDER_SERVICES
+      .filter((ps) => ps.service_id === serviceId)
+      .map((ps) => DEMO_PROVIDERS.find((p) => p.id === ps.provider_id))
+      .filter((p): p is Provider => Boolean(p));
+    return demoProviders;
   }
-  if (userLat !== undefined && userLng !== undefined) {
-    return providers.filter((p) => {
-      const dist = haversineDistance(userLat, userLng, p.latitude, p.longitude);
-      return dist <= Math.max(radiusKm, p.service_radius_km);
-    });
-  }
-  return providers;
 }
 
 export async function getProviderById(id: string): Promise<Provider | null> {
@@ -181,23 +232,36 @@ export async function createProviderProfile(
 }
 
 export async function getProviderAvailability(providerId: string): Promise<ProviderAvailability[]> {
-  const snap = await getDocs(query(collection(db, PROVIDER_AVAILABILITY), where('provider_id', '==', providerId)));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProviderAvailability));
+  try {
+    const snap = await getDocs(query(collection(db, PROVIDER_AVAILABILITY), where('provider_id', '==', providerId)));
+    const availability = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProviderAvailability));
+    return availability.length > 0 ? availability : DEMO_PROVIDER_AVAILABILITY.filter((slot) => slot.provider_id === providerId);
+  } catch (error) {
+    return DEMO_PROVIDER_AVAILABILITY.filter((slot) => slot.provider_id === providerId);
+  }
 }
 
 export async function getProviderServices(providerId: string): Promise<Service[]> {
-  const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('provider_id', '==', providerId)));
-  const serviceIds = snap.docs.map((d) => (d.data() as { service_id: string }).service_id);
-  const services: Service[] = [];
-  for (const sid of serviceIds) {
-    const sd = await getDoc(doc(db, SERVICES, sid));
-    if (sd.exists()) services.push({ id: sd.id, ...sd.data() } as Service);
-    else {
-      const sample = sampleServices.find((service) => service.id === sid);
-      if (sample) services.push(sample);
+  try {
+    const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('provider_id', '==', providerId)));
+    const serviceIds = snap.docs.map((d) => (d.data() as { service_id: string }).service_id);
+    const services: Service[] = [];
+    const demoServices = getDemoServices();
+    for (const sid of serviceIds) {
+      const sd = await getDoc(doc(db, SERVICES, sid));
+      if (sd.exists()) services.push({ id: sd.id, ...sd.data() } as Service);
+      else {
+        const demo = demoServices.find((service) => service.id === sid);
+        if (demo) services.push(demo);
+      }
     }
+    if (services.length > 0) return services;
+    const demoServiceIds = DEMO_PROVIDER_SERVICES.filter((ps) => ps.provider_id === providerId).map((ps) => ps.service_id);
+    return demoServices.filter((service) => demoServiceIds.includes(service.id));
+  } catch (error) {
+    const demoServiceIds = DEMO_PROVIDER_SERVICES.filter((ps) => ps.provider_id === providerId).map((ps) => ps.service_id);
+    return getDemoServices().filter((service) => demoServiceIds.includes(service.id));
   }
-  return services;
 }
 
 export async function saveProviderServices(providerId: string, serviceIds: string[]): Promise<void> {
@@ -317,9 +381,14 @@ export async function getInstantRequestsForProvider(providerId: string): Promise
 }
 
 export async function getAllProviders(): Promise<Provider[]> {
-  const snap = await getDocs(collection(db, PROVIDERS));
-  const providers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Provider));
-  return providers.sort((a, b) => b.rating - a.rating);
+  try {
+    const snap = await getDocs(collection(db, PROVIDERS));
+    const providers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Provider));
+    if (providers.length === 0) return DEMO_PROVIDERS;
+    return providers.sort((a, b) => b.rating - a.rating);
+  } catch (error) {
+    return DEMO_PROVIDERS;
+  }
 }
 
 // ============ REAL-TIME LISTENERS ============

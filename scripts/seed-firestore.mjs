@@ -1,0 +1,320 @@
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, getDocs } from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '',
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || '',
+};
+
+const CATEGORIES = [
+  {
+    id: 'plumbing',
+    name: 'Plumbing',
+    slug: 'plumbing',
+    icon: 'Wrench',
+    description: 'Leak repairs, fixture installation, and pipe work.',
+    display_order: 1,
+    image_url: null,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'electrical',
+    name: 'Electrical',
+    slug: 'electrical',
+    icon: 'Zap',
+    description: 'Lighting, wiring, and appliance electrical fixes.',
+    display_order: 2,
+    image_url: null,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'carpentry',
+    name: 'Carpentry',
+    slug: 'carpentry',
+    icon: 'Hammer',
+    description: 'Furniture repair, woodwork, and custom fixtures.',
+    display_order: 3,
+    image_url: null,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'cleaning',
+    name: 'Cleaning',
+    slug: 'cleaning',
+    icon: 'Sparkles',
+    description: 'Home deep cleaning, general cleaning, and move-out services.',
+    display_order: 4,
+    image_url: null,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'hvac',
+    name: 'AC & HVAC',
+    slug: 'hvac',
+    icon: 'Wind',
+    description: 'Cooling and heating maintenance for homes and shops.',
+    display_order: 5,
+    image_url: null,
+    created_at: new Date().toISOString(),
+  },
+];
+
+const SERVICES = [
+  {
+    id: 'svc-plumber-fix',
+    category_id: 'plumbing',
+    name: 'Plumber Fix',
+    slug: 'plumber-fix',
+    description: 'Emergency repair for leaks, taps, and bathroom fixtures.',
+    pricing_type: 'flat',
+    base_price: 149,
+    unit_label: null,
+    estimated_duration_mins: 60,
+    icon: 'Wrench',
+    image_url: null,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'svc-electrician',
+    category_id: 'electrical',
+    name: 'Electrician',
+    slug: 'electrician',
+    description: 'Wiring repairs, lighting fixes, and switch replacements.',
+    pricing_type: 'flat',
+    base_price: 169,
+    unit_label: null,
+    estimated_duration_mins: 75,
+    icon: 'Zap',
+    image_url: null,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'svc-carpenter',
+    category_id: 'carpentry',
+    name: 'Carpenter',
+    slug: 'carpenter',
+    description: 'Custom furniture repair, installation, and woodwork touch-ups.',
+    pricing_type: 'hourly',
+    base_price: 38,
+    unit_label: 'hour',
+    estimated_duration_mins: 90,
+    icon: 'Hammer',
+    image_url: null,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'svc-home-cleaning',
+    category_id: 'cleaning',
+    name: 'Home Cleaning',
+    slug: 'home-cleaning',
+    description: 'General home cleaning and deep cleaning for rooms and kitchens.',
+    pricing_type: 'flat',
+    base_price: 129,
+    unit_label: null,
+    estimated_duration_mins: 120,
+    icon: 'Sparkles',
+    image_url: null,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'svc-ac-repair',
+    category_id: 'hvac',
+    name: 'AC Repair',
+    slug: 'ac-repair',
+    description: 'Cooling diagnostics and AC maintenance for homes and shops.',
+    pricing_type: 'flat',
+    base_price: 189,
+    unit_label: null,
+    estimated_duration_mins: 90,
+    icon: 'Wind',
+    image_url: null,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+];
+
+const PROVIDERS = [
+  {
+    id: 'prov-1',
+    name: 'Rahul Sharma',
+    business_name: 'Apex Plumbing Co',
+    avatar_url: null,
+    phone: '+91 98765 43210',
+    email: 'rahul@apexplumbing.example',
+    bio: 'Fast-response plumber for kitchens, bathrooms, and emergency leaks.',
+    latitude: 19.076,
+    longitude: 72.8777,
+    address: 'Andheri East, Mumbai',
+    locality: 'Andheri',
+    city: 'Mumbai',
+    service_radius_km: 8,
+    is_verified: true,
+    is_checked_in: true,
+    rating: 4.9,
+    total_reviews: 182,
+    total_jobs: 540,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'prov-2',
+    name: 'Aisha Khan',
+    business_name: 'Urban Electric',
+    avatar_url: null,
+    phone: '+91 99876 55443',
+    email: 'aisha@urbanelectric.example',
+    bio: 'Certified electrician handling lighting, rewiring, and appliance support.',
+    latitude: 19.082,
+    longitude: 72.885,
+    address: 'Powai, Mumbai',
+    locality: 'Powai',
+    city: 'Mumbai',
+    service_radius_km: 7,
+    is_verified: true,
+    is_checked_in: true,
+    rating: 4.8,
+    total_reviews: 124,
+    total_jobs: 318,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'prov-3',
+    name: 'Dev Patel',
+    business_name: 'Northside Carpentry',
+    avatar_url: null,
+    phone: '+91 98111 88881',
+    email: 'dev@northsidecarpentry.example',
+    bio: 'Custom cabinetry, repair work, and furniture assembly.',
+    latitude: 19.046,
+    longitude: 72.89,
+    address: 'Bandra West, Mumbai',
+    locality: 'Bandra',
+    city: 'Mumbai',
+    service_radius_km: 6,
+    is_verified: true,
+    is_checked_in: true,
+    rating: 4.7,
+    total_reviews: 96,
+    total_jobs: 210,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'prov-4',
+    name: 'Nisha Verma',
+    business_name: 'FreshNest Cleaning',
+    avatar_url: null,
+    phone: '+91 99330 77665',
+    email: 'nisha@freshnest.example',
+    bio: 'Residential and office cleaning with trained staff and flexible slots.',
+    latitude: 19.11,
+    longitude: 72.84,
+    address: 'Khar, Mumbai',
+    locality: 'Khar',
+    city: 'Mumbai',
+    service_radius_km: 9,
+    is_verified: true,
+    is_checked_in: true,
+    rating: 4.9,
+    total_reviews: 220,
+    total_jobs: 610,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'prov-5',
+    name: 'Vikram Joshi',
+    business_name: 'BrightFix AC',
+    avatar_url: null,
+    phone: '+91 98980 10101',
+    email: 'vikram@brightfix.example',
+    bio: 'AC service, cooling diagnostics, and preventive maintenance.',
+    latitude: 19.032,
+    longitude: 72.92,
+    address: 'Chembur, Mumbai',
+    locality: 'Chembur',
+    city: 'Mumbai',
+    service_radius_km: 7,
+    is_verified: true,
+    is_checked_in: true,
+    rating: 4.8,
+    total_reviews: 141,
+    total_jobs: 420,
+    created_at: new Date().toISOString(),
+  },
+];
+
+const PROVIDER_SERVICES = [
+  { provider_id: 'prov-1', service_id: 'svc-plumber-fix' },
+  { provider_id: 'prov-2', service_id: 'svc-electrician' },
+  { provider_id: 'prov-3', service_id: 'svc-carpenter' },
+  { provider_id: 'prov-4', service_id: 'svc-home-cleaning' },
+  { provider_id: 'prov-5', service_id: 'svc-ac-repair' },
+];
+
+const PROVIDER_AVAILABILITY = [
+  { id: 'a-1', provider_id: 'prov-1', day_of_week: 1, start_time: '09:00', end_time: '18:00', max_simultaneous_jobs: 2 },
+  { id: 'a-2', provider_id: 'prov-2', day_of_week: 1, start_time: '10:00', end_time: '19:00', max_simultaneous_jobs: 2 },
+  { id: 'a-3', provider_id: 'prov-3', day_of_week: 2, start_time: '11:00', end_time: '17:00', max_simultaneous_jobs: 1 },
+  { id: 'a-4', provider_id: 'prov-4', day_of_week: 2, start_time: '09:30', end_time: '18:30', max_simultaneous_jobs: 3 },
+  { id: 'a-5', provider_id: 'prov-5', day_of_week: 3, start_time: '08:00', end_time: '16:00', max_simultaneous_jobs: 2 },
+];
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+async function seedCollection(name, data) {
+  for (const item of data) {
+    await setDoc(doc(db, name, item.id), item);
+  }
+}
+
+async function main() {
+  const email = process.env.FIREBASE_SEED_EMAIL;
+  const password = process.env.FIREBASE_SEED_PASSWORD;
+  if (!email || !password) {
+    throw new Error('Missing FIREBASE_SEED_EMAIL and FIREBASE_SEED_PASSWORD env vars. Create a Firebase user in the project and set them before running this script.');
+  }
+
+  if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+    throw new Error('Missing Firebase project config. Check .env.local or the deployed environment variables.');
+  }
+
+  await signInWithEmailAndPassword(auth, email, password);
+
+  await seedCollection('service_categories', CATEGORIES);
+  await seedCollection('services', SERVICES);
+  await seedCollection('providers', PROVIDERS);
+
+  for (const item of PROVIDER_SERVICES) {
+    await setDoc(doc(db, 'provider_services', `${item.provider_id}_${item.service_id}`), {
+      id: `${item.provider_id}_${item.service_id}`,
+      provider_id: item.provider_id,
+      service_id: item.service_id,
+      custom_price: null,
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  for (const item of PROVIDER_AVAILABILITY) {
+    await setDoc(doc(db, 'provider_availability', item.id), {
+      ...item,
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  console.log('Firestore seed complete');
+}
+
+main().catch((error) => {
+  console.error('Seed failed:', error.message || error);
+  process.exit(1);
+});

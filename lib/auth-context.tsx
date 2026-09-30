@@ -5,7 +5,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signOut as firebaseSignOut, type User as FirebaseUser,
 } from 'firebase/auth';
-import { auth } from './firebase';
+import { auth, isFirebaseConfigured } from './firebase';
 
 interface PendingAction {
   type: 'booking' | 'instant';
@@ -33,6 +33,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -41,6 +47,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
+    if (!isFirebaseConfigured()) {
+      return { error: 'Firebase is not configured for this deployment.' };
+    }
+
     try {
       await signInWithEmailAndPassword(auth, email, password);
       return { error: null };
@@ -50,6 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
+    if (!isFirebaseConfigured()) {
+      return { error: 'Firebase is not configured for this deployment.' };
+    }
+
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       return { error: null };
@@ -59,6 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    if (!isFirebaseConfigured()) {
+      setUser(null);
+      return;
+    }
+
     await firebaseSignOut(auth);
     setUser(null);
   }, []);

@@ -22,6 +22,8 @@ jobs:
       NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: api-sample-20c3a.firebasestorage.app
       NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '772194196847'
       NEXT_PUBLIC_FIREBASE_APP_ID: 1:772194196847:web:6bc4074b37c297dd389c9a
+      NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: G-BGF0R1MEND
+      NEXT_PUBLIC_BASE_PATH: /serve
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -44,6 +46,7 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_BASE_PATH: /serve
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: G-BGF0R1MEND
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
