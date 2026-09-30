@@ -142,6 +142,13 @@ export async function getProvidersForService(
   userLng?: number,
   radiusKm: number = 5,
 ): Promise<Provider[]> {
+  if (!isFirebaseConfigured()) {
+    return DEMO_PROVIDER_SERVICES
+      .filter((relation) => relation.service_id === serviceId)
+      .map((relation) => DEMO_PROVIDERS.find((provider) => provider.id === relation.provider_id))
+      .filter((provider): provider is Provider => Boolean(provider));
+  }
+
   try {
     const snap = await getDocs(query(collection(db, PROVIDER_SERVICES), where('service_id', '==', serviceId)));
     const providerIds = snap.docs.map((d) => (d.data() as { provider_id: string }).provider_id);

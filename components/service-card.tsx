@@ -2,7 +2,8 @@
 
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { ArrowRight, Star, Clock, ShieldCheck, Zap, MapPin } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ArrowRight, BadgeCheck, Clock, MapPin, ShieldCheck, Star, Users } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Service, Provider } from '@/lib/types';
@@ -14,8 +15,6 @@ interface ServiceCardProps {
   providers: Provider[];
   userLat?: number;
   userLng?: number;
-  onBook: (service: Service) => void;
-  onInstantWork: (service: Service) => void;
 }
 
 function getIcon(name: string): LucideIcon {
@@ -23,13 +22,16 @@ function getIcon(name: string): LucideIcon {
   return Icon || Icons.Wrench;
 }
 
-export function ServiceCard({ service, providers, userLat, userLng, onBook, onInstantWork }: ServiceCardProps) {
+export function ServiceCard({ service, providers, userLat, userLng }: ServiceCardProps) {
+  const router = useRouter();
   const Icon = getIcon(service.icon);
   const availableProviders = providers.filter((p) => p.is_checked_in && p.is_verified);
   const locatedProviders = providers.filter((provider) => provider.latitude !== null && provider.longitude !== null);
   const nearestDist = userLat !== undefined && userLng !== undefined && locatedProviders.length > 0
     ? Math.min(...locatedProviders.map((p) => haversineDistance(userLat, userLng, p.latitude as number, p.longitude as number)))
     : null;
+  const verifiedCount = providers.filter((provider) => provider.is_verified).length;
+  const openDirectory = () => router.push(`/providers/?service=${encodeURIComponent(service.id)}`);
 
   return (
     <motion.div
@@ -38,7 +40,17 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
       viewport={{ once: true, margin: '-50px' }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       whileHover={{ y: -4 }}
-      className="group relative bg-card border border-border rounded-xl overflow-hidden hover:border-foreground/20 transition-colors flex flex-col"
+      role="link"
+      tabIndex={0}
+      aria-label={`View providers for ${service.name}`}
+      onClick={openDirectory}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openDirectory();
+        }
+      }}
+      className="group relative cursor-pointer bg-card border border-border rounded-xl overflow-hidden hover:border-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 transition-colors flex flex-col"
     >
       {service.image_url && (
         <div className="relative h-40 overflow-hidden bg-muted">
@@ -50,10 +62,15 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+          {service.is_sample && (
+            <span className="absolute left-3 top-3 border border-white/30 bg-black/65 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-normal text-white backdrop-blur-sm">
+              Indicative price
+            </span>
+          )}
           {availableProviders.length > 0 && (
             <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur text-white text-xs font-medium">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-              {availableProviders.length} available
+              {availableProviders.length} available now
             </div>
           )}
         </div>
@@ -64,10 +81,10 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
           <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-secondary text-foreground/70 group-hover:bg-foreground group-hover:text-background transition-colors">
             <Icon className="h-4.5 w-4.5" />
           </div>
-          {providers.some((p) => p.is_verified) && (
+          {verifiedCount > 0 && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Verified
+              {verifiedCount} verified
             </span>
           )}
         </div>
@@ -130,33 +147,31 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
         </div>
 
         <div className="mt-auto">
-          <div className="flex items-end justify-between mb-3">
+          <div className="mb-3 flex items-center justify-between gap-3 border-y border-border py-3">
             <div>
-              <span className="text-xl font-bold tracking-tight">{formatPrice(service.base_price)}</span>
-              {service.is_sample && <span className="ml-2 text-xs text-muted-foreground">sample price</span>}
-              {service.pricing_type !== 'flat' && (
-                <span className="text-sm text-muted-foreground ml-1">/{service.unit_label}</span>
-              )}
+              <span className="block text-[10px] font-medium uppercase tracking-normal text-muted-foreground">Starting price</span>
+              <span className="text-lg font-bold tracking-tight">{formatPrice(service.base_price)}</span>
+              {service.pricing_type !== 'flat' && <span className="ml-1 text-sm text-muted-foreground">/{service.unit_label}</span>}
             </div>
+            <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground"><BadgeCheck className="h-3.5 w-3.5" /> Upfront pricing</span>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Users className="h-3.5 w-3.5" />
+              {providers.length} {providers.length === 1 ? 'provider' : 'providers'}
+              {nearestDist !== null && ` · ${nearestDist < 1 ? `${Math.round(nearestDist * 1000)}m` : `${nearestDist.toFixed(1)}km`} away`}
+            </span>
             <button
-              onClick={() => onBook(service)}
-              disabled={service.is_sample}
-              className="flex-1 h-9 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openDirectory();
+              }}
+              className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-foreground px-3 text-xs font-semibold text-background transition-colors hover:bg-foreground/90"
             >
-              {service.is_sample ? 'Preview only' : 'Book Now'}
+              View Nearby Providers <ArrowRight className="h-3.5 w-3.5" />
             </button>
-            {availableProviders.length > 0 && (
-              <button
-                onClick={() => onInstantWork(service)}
-                className="h-9 px-3 rounded-lg border border-border text-sm font-medium hover:bg-secondary transition-colors flex items-center gap-1"
-              >
-                <Zap className="h-3.5 w-3.5" />
-                Instant
-              </button>
-            )}
           </div>
         </div>
       </div>

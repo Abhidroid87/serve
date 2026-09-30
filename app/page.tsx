@@ -1,17 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Zap, Wrench, ShieldCheck, CreditCard, Star, ArrowRight, CheckCircle2, Lock } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { LocationBar, type UserLocation } from '@/components/location-bar';
 import { ServiceCard } from '@/components/service-card';
-import { BookingModal } from '@/components/booking-modal';
-import { InstantWorkModal } from '@/components/instant-work-modal';
 import { BookingsList } from '@/components/bookings-list';
 import { useAuth } from '@/lib/auth-context';
-import type { Service, ServiceCategory, Provider, Booking, InstantRequest } from '@/lib/types';
+import type { Service, ServiceCategory, Provider } from '@/lib/types';
 import { getMarketplaceCatalog, getProvidersForService } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
@@ -21,7 +19,7 @@ function getIcon(name: string): LucideIcon {
 }
 
 export default function Home() {
-  const { user, pendingAction, setPendingAction, setShowAuthModal } = useAuth();
+  const { user, setShowAuthModal } = useAuth();
   const [location, setLocation] = useState<UserLocation | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -30,9 +28,6 @@ export default function Home() {
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
   const [providerNotice, setProviderNotice] = useState<string | null>(null);
   const [providerCache, setProviderCache] = useState<Record<string, Provider[]>>({});
-  const [bookingService, setBookingService] = useState<Service | null>(null);
-  const [instantService, setInstantService] = useState<Service | null>(null);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeTab, setActiveTab] = useState('discover');
 
   useEffect(() => {
@@ -48,15 +43,10 @@ export default function Home() {
 
   useEffect(() => {
     if (services.length === 0) return;
-    if (services.every((service) => service.is_sample)) {
-      setProviderCache({});
-      return;
-    }
     const loadProviders = async () => {
       const cache: Record<string, Provider[]> = {};
       try {
         for (const s of services) {
-          if (s.is_sample) continue;
           cache[s.id] = await getProvidersForService(s.id, location?.lat, location?.lng, 10);
         }
         setProviderCache(cache);
@@ -77,47 +67,6 @@ export default function Home() {
     }
     return true;
   });
-
-  const handleBook = useCallback((service: Service) => {
-    if (!user) {
-      setPendingAction({ type: 'booking', data: service });
-      setShowAuthModal(true);
-      return;
-    }
-    setBookingService(service);
-  }, [user, setPendingAction, setShowAuthModal]);
-
-  const handleInstantWork = useCallback((service: Service) => {
-    if (!user) {
-      setPendingAction({ type: 'instant', data: service });
-      setShowAuthModal(true);
-      return;
-    }
-    setInstantService(service);
-  }, [user, setPendingAction, setShowAuthModal]);
-
-  const handleBookingConfirmed = useCallback((booking: Booking) => {
-    setBookingService(null);
-    setRefreshTrigger((r) => r + 1);
-    setActiveTab('bookings');
-  }, []);
-
-  const handleInstantAccepted = useCallback((_request: InstantRequest, _provider: Provider) => {
-    setRefreshTrigger((r) => r + 1);
-    setActiveTab('bookings');
-  }, []);
-
-  // After auth, resume pending action
-  useEffect(() => {
-    if (user && pendingAction) {
-      if (pendingAction.type === 'booking') {
-        setBookingService(pendingAction.data as Service);
-      } else if (pendingAction.type === 'instant') {
-        setInstantService(pendingAction.data as Service);
-      }
-      setPendingAction(null);
-    }
-  }, [user, pendingAction, setPendingAction]);
 
   const verifiedProviders = Array.from(new Map(
     Object.values(providerCache).flat().filter((provider) => provider.is_verified).map((provider) => [provider.id, provider]),
@@ -325,8 +274,6 @@ export default function Home() {
                       providers={providerCache[service.id] || []}
                       userLat={location?.lat}
                       userLng={location?.lng}
-                      onBook={handleBook}
-                      onInstantWork={handleInstantWork}
                     />
                   ))}
                 </div>
@@ -343,7 +290,7 @@ export default function Home() {
                 <Lock className="h-3.5 w-3.5" /> Escrow protected
               </span>
             </div>
-            <BookingsList refreshTrigger={refreshTrigger} />
+            <BookingsList refreshTrigger={0} />
           </div>
         )}
       </main>
@@ -355,19 +302,6 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* Modals */}
-      <BookingModal
-        service={bookingService}
-        userLocation={location}
-        onClose={() => setBookingService(null)}
-        onBookingConfirmed={handleBookingConfirmed}
-      />
-      <InstantWorkModal
-        service={instantService}
-        userLocation={location}
-        onClose={() => setInstantService(null)}
-        onAccepted={handleInstantAccepted}
-      />
     </div>
   );
 }
