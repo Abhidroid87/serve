@@ -27,6 +27,28 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function getAuthErrorMessage(error: unknown): string {
+  const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Email or password is incorrect. Check that this user exists in Firebase Authentication.';
+    case 'auth/email-already-in-use':
+      return 'This email already has an account. Switch to Sign in.';
+    case 'auth/operation-not-allowed':
+      return 'Email/password sign-in is disabled. Enable it in Firebase Console under Authentication > Sign-in method.';
+    case 'auth/unauthorized-domain':
+      return 'This website domain is not authorized in Firebase Authentication settings.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Wait a while and try again.';
+    case 'auth/network-request-failed':
+      return 'Could not reach Firebase Authentication. Check your network and try again.';
+    default:
+      return error instanceof Error ? error.message : 'Authentication failed. Please try again.';
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signInWithEmailAndPassword(auth, email, password);
       return { error: null };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : 'Sign in failed' };
+      return { error: getAuthErrorMessage(err) };
     }
   }, []);
 
@@ -69,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await createUserWithEmailAndPassword(auth, email, password);
       return { error: null };
     } catch (err) {
-      return { error: err instanceof Error ? err.message : 'Sign up failed' };
+      return { error: getAuthErrorMessage(err) };
     }
   }, []);
 
