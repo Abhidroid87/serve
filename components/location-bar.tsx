@@ -1,7 +1,7 @@
 'use client';
 
 import { MapPin, Search, Crosshair } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export interface UserLocation {
@@ -59,12 +59,6 @@ export function detectLocation(): Promise<UserLocation> {
 export function LocationBar({ location, onLocationChange, searchQuery, onSearchChange }: LocationBarProps) {
   const [detecting, setDetecting] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-
-  useEffect(() => {
-    if (!location) {
-      detectLocation().then(onLocationChange);
-    }
-  }, [location, onLocationChange]);
 
   const handleDetect = async () => {
     setDetecting(true);

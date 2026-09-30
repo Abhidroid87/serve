@@ -68,7 +68,11 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
   };
 
   const handleBroadcast = async () => {
-    if (!service || !userLocation) return;
+    if (!service) return;
+    if (!userLocation) {
+      setError('Select a service area or choose Use my location before broadcasting.');
+      return;
+    }
     if (!customerName.trim() || !customerPhone.trim()) { setError('Please fill in your name and phone number.'); return; }
     setError('');
     try {

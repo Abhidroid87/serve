@@ -63,8 +63,8 @@ export function BookingModal({ service, userLocation, onClose, onBookingConfirme
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (service && userLocation) {
-      getProvidersForService(service.id, userLocation.lat, userLocation.lng).then(setProviders);
+    if (service) {
+      getProvidersForService(service.id, userLocation?.lat, userLocation?.lng).then(setProviders);
     }
   }, [service, userLocation]);
 

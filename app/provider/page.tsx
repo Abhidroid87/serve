@@ -1,25 +1,28 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Wrench, ArrowLeft, Star, Calendar, Clock, Zap, CheckCircle2, Radio, Power,
+  Wrench, ArrowLeft, Star, Calendar, Clock, Zap, CheckCircle2, Radio, Power, Check,
   MapPin, Phone, User, TrendingUp, Loader2, Bell, Navigation, X,
 } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 import type { Provider, Booking, Service, ProviderAvailability, InstantRequest } from '@/lib/types';
 import {
-  getAllProviders, getBookingsByProvider, getProviderAvailability, getProviderServices,
-  getInstantRequestsForProvider, acceptInstantRequest, updateProviderCheckIn,
-  saveProviderAvailability, verifyOTPAndComplete, formatPrice, formatTime, haversineDistance,
+  createProviderProfile, getMarketplaceCatalog, getProviderById, getBookingsByProvider, getProviderAvailability, getProviderServices,
+  getInstantRequestsForProvider, onProviderBookings, acceptInstantRequest, updateProviderCheckIn,
+  saveProviderAvailability, saveProviderServices, verifyOTPAndComplete, formatPrice, formatTime, haversineDistance,
+  type ProviderProfileInput,
 } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function ProviderPage() {
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const { user, loading: authLoading, setShowAuthModal } = useAuth();
   const [provider, setProvider] = useState<Provider | null>(null);
+  const [catalogServices, setCatalogServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [availability, setAvailability] = useState<ProviderAvailability[]>([]);
   const [providerServices, setProviderServices] = useState<Service[]>([]);
@@ -27,45 +30,67 @@ export default function ProviderPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [setupError, setSetupError] = useState('');
 
   useEffect(() => {
-    getAllProviders().then((p) => {
-      setProviders(p);
-      if (p.length > 0) setSelectedProviderId(p[0].id);
+    if (authLoading) return;
+    let active = true;
+    if (!user) {
+      setProvider(null);
       setLoading(false);
-    });
-  }, []);
+      return () => { active = false; };
+    }
+    setLoading(true);
+    setSetupError('');
+    Promise.all([getProviderById(user.uid), getMarketplaceCatalog()])
+      .then(([profile, catalog]) => {
+        if (!active) return;
+        setProvider(profile);
+        setCatalogServices(catalog.services);
+      })
+      .catch((error) => {
+        if (!active) return;
+        const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : 'unavailable';
+        setSetupError(`Firebase could not load your provider profile (${code}).`);
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [user, authLoading]);
 
   const loadProviderData = useCallback(async (id: string) => {
-    const [p, b, a, s] = await Promise.all([
-      providers.find((pr) => pr.id === id) || null,
-      getBookingsByProvider(id),
+    const [p, a, s] = await Promise.all([
+      getProviderById(id),
       getProviderAvailability(id),
       getProviderServices(id),
     ]);
+    const [b, ir] = await Promise.all([
+      getBookingsByProvider(id, s.map((service) => service.id)),
+      getInstantRequestsForProvider(id),
+    ]);
     setProvider(p); setBookings(b); setAvailability(a); setProviderServices(s);
-    const ir = await getInstantRequestsForProvider(id);
     setInstantRequests(ir);
-  }, [providers]);
+  }, []);
 
   useEffect(() => {
-    if (selectedProviderId) loadProviderData(selectedProviderId);
-  }, [selectedProviderId, loadProviderData]);
+    if (!provider?.id) return;
+    return onProviderBookings(provider.id, () => {
+      void loadProviderData(provider.id);
+    });
+  }, [provider?.id, loadProviderData]);
 
   useEffect(() => {
-    if (!selectedProviderId || !provider?.is_checked_in) return;
+    if (!provider?.id || !provider.is_checked_in) return;
     const interval = setInterval(async () => {
-      const ir = await getInstantRequestsForProvider(selectedProviderId);
+      const ir = await getInstantRequestsForProvider(provider.id);
       setInstantRequests(ir);
     }, 3000);
     return () => clearInterval(interval);
-  }, [selectedProviderId, provider?.is_checked_in]);
+  }, [provider?.id, provider?.is_checked_in]);
 
   const handleCheckInToggle = async () => {
     if (!provider) return;
     await updateProviderCheckIn(provider.id, !provider.is_checked_in);
     setProvider({ ...provider, is_checked_in: !provider.is_checked_in });
-    setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, is_checked_in: !p.is_checked_in } : p)));
   };
 
   const handleAcceptInstant = async (requestId: string) => {
@@ -90,8 +115,29 @@ export default function ProviderPage() {
     else alert(result.message);
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>;
-  if (!provider) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">No providers found.</div>;
+  if (authLoading || loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>;
+  if (!user) return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <Wrench className="h-9 w-9" />
+      <h1 className="text-2xl font-bold">Provider Portal</h1>
+      <p className="max-w-md text-sm text-muted-foreground">Sign in or create an account to set up your provider profile and choose the services you offer.</p>
+      <button onClick={() => setShowAuthModal(true)} className="h-11 rounded-lg bg-foreground px-5 text-sm font-medium text-background">Sign in or create account</button>
+    </div>
+  );
+  if (!provider) return (
+    <ProviderOnboarding
+      userName={user.displayName || user.email?.split('@')[0] || ''}
+      userEmail={user.email || ''}
+      services={catalogServices}
+      initialError={setupError}
+      onCreate={async (profile, serviceIds) => {
+        const created = await createProviderProfile(user.uid, user.email || '', profile, serviceIds);
+        setProvider(created);
+        setProviderServices(catalogServices.filter((service) => serviceIds.includes(service.id)));
+        setActiveTab('overview');
+      }}
+    />
+  );
 
   const activeBookings = bookings.filter((b) => b.status === 'confirmed' || b.status === 'in_progress');
   const completedBookings = bookings.filter((b) => b.status === 'completed');
@@ -118,13 +164,7 @@ export default function ProviderPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <select
-                value={selectedProviderId || ''}
-                onChange={(e) => setSelectedProviderId(e.target.value)}
-                className="h-9 px-3 rounded-lg border border-border bg-card text-sm font-medium focus:outline-none focus:border-foreground/30"
-              >
-                {providers.map((p) => (<option key={p.id} value={p.id}>{p.business_name || p.name}</option>))}
-              </select>
+              <span className="hidden text-sm font-medium sm:inline">{provider.business_name || provider.name}</span>
               <button
                 onClick={handleCheckInToggle}
                 className={cn(
@@ -167,6 +207,7 @@ export default function ProviderPage() {
         <div className="flex items-center gap-1 mb-6 border-b border-border">
           {[
             { id: 'overview', label: 'Bookings', icon: Calendar },
+            { id: 'services', label: 'My Services', icon: Wrench },
             { id: 'instant', label: 'Instant Work', icon: Zap, badge: instantRequests.length },
             { id: 'availability', label: 'Availability', icon: Clock },
           ].map((tab) => {
@@ -342,6 +383,19 @@ export default function ProviderPage() {
           </div>
         )}
 
+        {activeTab === 'services' && (
+          <ServiceEditor
+            services={catalogServices}
+            initialIds={providerServices.map((service) => service.id)}
+            onSave={async (serviceIds) => {
+              await saveProviderServices(provider.id, serviceIds);
+              const saved = await getProviderServices(provider.id);
+              setProviderServices(saved);
+              setInstantRequests(await getInstantRequestsForProvider(provider.id));
+            }}
+          />
+        )}
+
         {/* Availability */}
         {activeTab === 'availability' && (
           <AvailabilityEditor
@@ -356,6 +410,204 @@ export default function ProviderPage() {
           />
         )}
       </main>
+    </div>
+  );
+}
+
+function ProviderOnboarding({
+  userName,
+  userEmail,
+  services,
+  initialError,
+  onCreate,
+}: {
+  userName: string;
+  userEmail: string;
+  services: Service[];
+  initialError: string;
+  onCreate: (profile: ProviderProfileInput, serviceIds: string[]) => Promise<void>;
+}) {
+  const [businessName, setBusinessName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(initialError);
+
+  const useLocation = () => {
+    if (!navigator.geolocation) {
+      setError('This browser does not support location detection. Enter coordinates manually.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(String(position.coords.latitude));
+        setLongitude(String(position.coords.longitude));
+      },
+      () => setError('Location permission was not granted. Enter coordinates manually.'),
+      { timeout: 10000 },
+    );
+  };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (selectedIds.length === 0) {
+      setError('Choose at least one service you provide.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onCreate({
+        name: userName,
+        business_name: businessName.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+      }, selectedIds);
+    } catch (saveError) {
+      const code = typeof saveError === 'object' && saveError && 'code' in saveError ? String(saveError.code) : '';
+      setError(code.includes('permission-denied')
+        ? 'Firestore denied this profile write. Its rules must allow a signed-in user to create their own UID-keyed provider profile and service links.'
+        : saveError instanceof Error ? saveError.message : 'Could not save provider setup.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mb-7 max-w-2xl">
+        <p className="text-xs font-semibold uppercase text-muted-foreground">Provider onboarding</p>
+        <h1 className="mt-2 text-3xl font-bold">Set up your service profile</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Signed in as {userEmail}. Add your business details and choose the work you take on.</p>
+      </div>
+      <form onSubmit={submit} className="grid gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <section className="space-y-4">
+          <label className="block text-sm font-medium">Business name
+            <input required value={businessName} onChange={(event) => setBusinessName(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+          <label className="block text-sm font-medium">Contact phone
+            <input required type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+          <label className="block text-sm font-medium">Work address
+            <input required value={address} onChange={(event) => setAddress(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+          <label className="block text-sm font-medium">City / service area
+            <input required value={city} onChange={(event) => setCity(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm font-medium">Latitude
+              <input required type="number" step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+            </label>
+            <label className="block text-sm font-medium">Longitude
+              <input required type="number" step="any" value={longitude} onChange={(event) => setLongitude(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+            </label>
+          </div>
+          <button type="button" onClick={useLocation} className="h-10 rounded-lg border border-border px-3 text-sm font-medium hover:bg-secondary">
+            <MapPin className="mr-2 inline h-4 w-4" />Use my location
+          </button>
+        </section>
+        <section>
+          <h2 className="mb-1 text-lg font-semibold">Services you provide</h2>
+          <p className="mb-4 text-sm text-muted-foreground">Select every service you are qualified to take on.</p>
+          <ServiceChoices services={services} selectedIds={selectedIds} onChange={setSelectedIds} />
+          {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+          <button type="submit" disabled={saving || services.length === 0} className="mt-5 h-11 w-full rounded-lg bg-foreground text-sm font-medium text-background disabled:opacity-50">
+            {saving ? 'Saving profile…' : 'Create Provider Profile'}
+          </button>
+        </section>
+      </form>
+    </main>
+  );
+}
+
+function ServiceEditor({
+  services,
+  initialIds,
+  onSave,
+}: {
+  services: Service[];
+  initialIds: string[];
+  onSave: (serviceIds: string[]) => Promise<void>;
+}) {
+  const [selectedIds, setSelectedIds] = useState(initialIds);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => setSelectedIds(initialIds), [initialIds]);
+
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(selectedIds);
+    } catch (saveError) {
+      const code = typeof saveError === 'object' && saveError && 'code' in saveError ? String(saveError.code) : '';
+      setError(code.includes('permission-denied')
+        ? 'Firestore denied this update. Check the provider_services rules for this signed-in account.'
+        : saveError instanceof Error ? saveError.message : 'Could not save services.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="max-w-5xl">
+      <h2 className="text-xl font-semibold">Services you offer</h2>
+      <p className="mb-5 mt-1 text-sm text-muted-foreground">Only matched services appear in your incoming work feed.</p>
+      <ServiceChoices services={services} selectedIds={selectedIds} onChange={setSelectedIds} />
+      {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+      <button onClick={save} disabled={saving} className="mt-5 h-11 rounded-lg bg-foreground px-5 text-sm font-medium text-background disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save services'}
+      </button>
+    </section>
+  );
+}
+
+function ServiceChoices({
+  services,
+  selectedIds,
+  onChange,
+}: {
+  services: Service[];
+  selectedIds: string[];
+  onChange: (serviceIds: string[]) => void;
+}) {
+  const toggle = (serviceId: string) => {
+    onChange(selectedIds.includes(serviceId)
+      ? selectedIds.filter((id) => id !== serviceId)
+      : [...selectedIds, serviceId]);
+  };
+
+  if (services.length === 0) return <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">No service options are available yet.</p>;
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {services.map((service) => {
+        const selected = selectedIds.includes(service.id);
+        return (
+          <label key={service.id} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors', selected ? 'border-foreground bg-secondary/60' : 'border-border hover:bg-secondary/30')}>
+            <input type="checkbox" checked={selected} onChange={() => toggle(service.id)} className="sr-only" />
+            <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
+              {service.image_url && <Image src={service.image_url} alt="" fill sizes="80px" className="object-cover" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-medium">{service.name}</span>
+                {selected && <Check className="h-4 w-4 shrink-0" aria-label="Selected" />}
+              </div>
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{service.description}</p>
+              {service.is_sample && <p className="mt-1 text-[10px] font-medium text-amber-800">Sample option</p>}
+            </div>
+          </label>
+        );
+      })}
     </div>
   );
 }

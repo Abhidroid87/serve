@@ -29,6 +29,15 @@ export interface Service {
   is_active: boolean;
   created_at: string;
   category?: ServiceCategory;
+  completed_jobs?: CompletedJobExample[];
+  is_sample?: boolean;
+}
+
+export interface CompletedJobExample {
+  before_image_url: string;
+  after_image_url: string;
+  description: string;
+  repair_time_minutes: number;
 }
 
 export interface Provider {
@@ -51,6 +60,7 @@ export interface Provider {
   total_reviews: number;
   total_jobs: number;
   created_at: string;
+  auth_uid?: string;
 }
 
 export interface ProviderService {

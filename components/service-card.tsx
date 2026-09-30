@@ -1,7 +1,8 @@
 'use client';
 
+import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { Star, Clock, ShieldCheck, Zap, MapPin } from 'lucide-react';
+import { ArrowRight, Star, Clock, ShieldCheck, Zap, MapPin } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Service, Provider } from '@/lib/types';
@@ -40,9 +41,11 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
     >
       {service.image_url && (
         <div className="relative h-40 overflow-hidden bg-muted">
-          <img
+          <Image
             src={service.image_url}
             alt={service.name}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
@@ -73,6 +76,37 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
           <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{service.description}</p>
         )}
 
+        {service.completed_jobs?.filter((job) => job.before_image_url && job.after_image_url).map((job, index, jobs) => (
+          <section key={`${job.before_image_url}-${job.after_image_url}`} className="mb-4 overflow-hidden rounded-lg border border-border">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-[10px] font-semibold tracking-normal text-muted-foreground">
+                JOB {index + 1} OF {jobs.length}
+              </span>
+              <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                Repair time: {job.repair_time_minutes} min
+              </span>
+            </div>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1 p-2">
+              <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-muted">
+                <Image src={job.before_image_url} alt={`${service.name} before repair`} fill sizes="160px" className="object-cover" />
+                <span className="absolute left-2 top-2 rounded-sm bg-black/80 px-1.5 py-1 text-[9px] font-bold text-white">BEFORE</span>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-muted">
+                <Image src={job.after_image_url} alt={`${service.name} after repair`} fill sizes="160px" className="object-cover" />
+                <span className="absolute left-2 top-2 rounded-sm bg-blue-600 px-1.5 py-1 text-[9px] font-bold text-white">AFTER</span>
+              </div>
+            </div>
+            <div className="flex items-start justify-between gap-2 px-3 pb-3">
+              <p className="text-xs text-muted-foreground">{job.description || service.description}</p>
+              <span className="flex shrink-0 items-center gap-1 text-[10px] font-medium text-foreground">
+                <ShieldCheck className="h-3.5 w-3.5" /> 90-day guarantee
+              </span>
+            </div>
+          </section>
+        ))}
+
         <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4">
           <span className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
@@ -98,6 +132,7 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
           <div className="flex items-end justify-between mb-3">
             <div>
               <span className="text-xl font-bold tracking-tight">{formatPrice(service.base_price)}</span>
+              {service.is_sample && <span className="ml-2 text-xs text-muted-foreground">sample price</span>}
               {service.pricing_type !== 'flat' && (
                 <span className="text-sm text-muted-foreground ml-1">/{service.unit_label}</span>
               )}
@@ -107,9 +142,10 @@ export function ServiceCard({ service, providers, userLat, userLng, onBook, onIn
           <div className="flex gap-2">
             <button
               onClick={() => onBook(service)}
-              className="flex-1 h-9 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors"
+              disabled={service.is_sample}
+              className="flex-1 h-9 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Book Now
+              {service.is_sample ? 'Preview only' : 'Book Now'}
             </button>
             {availableProviders.length > 0 && (
               <button
