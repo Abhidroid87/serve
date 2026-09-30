@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getIdTokenResult } from 'firebase/auth';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity, ArrowUpRight, BriefcaseBusiness, Check, ClipboardList,
@@ -10,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import {
-  assignBookingProvider, getAdminModerationData, updateProviderModeration,
+  assignBookingProvider, getAdminModerationData, hasAdminAccess, updateProviderModeration,
   type AdminModerationData, type ModerationEnquiry,
 } from '@/lib/data';
 import { cn } from '@/lib/utils';
@@ -27,6 +28,7 @@ const navigation: { id: Panel; label: string; icon: typeof LayoutDashboard }[] =
 
 export default function AdminPage() {
   const { user, loading: authLoading, setShowAuthModal, signOut } = useAuth();
+  const router = useRouter();
   const [access, setAccess] = useState<Access>('checking');
   const [data, setData] = useState<AdminModerationData | null>(null);
   const [panel, setPanel] = useState<Panel>('overview');
@@ -38,6 +40,10 @@ export default function AdminPage() {
   const [assignments, setAssignments] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    if (access === 'signed-out') router.replace('/admin/login/');
+  }, [access, router]);
+
+  useEffect(() => {
     if (authLoading) return;
     if (!user) {
       setAccess('signed-out');
@@ -46,10 +52,10 @@ export default function AdminPage() {
     }
     let active = true;
     setAccess('checking');
-    getIdTokenResult(user, true)
-      .then(async (token) => {
+    hasAdminAccess(user.uid)
+      .then(async (isAdmin) => {
         if (!active) return;
-        if (token.claims.admin !== true) {
+        if (!isAdmin) {
           setAccess('denied');
           setLoading(false);
           return;
@@ -108,15 +114,7 @@ export default function AdminPage() {
   };
 
   if (authLoading || access === 'checking') return <GateState label="Checking administrator access" />;
-  if (access === 'signed-out') return (
-    <GateState
-      icon={<ShieldAlert className="h-6 w-6" />}
-      title="Administrator sign-in required"
-      label="Sign in with an account that has moderation access."
-      action={() => setShowAuthModal(true)}
-      actionLabel="Sign in"
-    />
-  );
+  if (access === 'signed-out') return <GateState label="Redirecting to administrator sign-in" />;
   if (access === 'denied') return (
     <GateState
       icon={<ShieldAlert className="h-6 w-6" />}
@@ -124,6 +122,7 @@ export default function AdminPage() {
       label="This account does not have the Firebase admin claim required for moderation."
       action={() => void signOut()}
       actionLabel="Sign out"
+      exitHref="/"
     />
   );
 
@@ -178,6 +177,7 @@ export default function AdminPage() {
             </div>
             <div className="flex items-center gap-2">
               <span className="hidden text-xs text-slate-500 sm:inline">{user?.email}</span>
+              <Link href="/" className="flex h-9 items-center gap-2 border border-white/10 px-3 text-xs text-slate-400 transition-colors hover:border-emerald-300/30 hover:text-white"><ArrowUpRight className="h-3.5 w-3.5" />Marketplace</Link>
               <button aria-label="Refresh moderation data" title="Refresh" onClick={() => void refresh()} disabled={loading} className="flex h-9 w-9 items-center justify-center border border-white/10 text-slate-400 transition-colors hover:border-emerald-300/40 hover:text-emerald-200 disabled:opacity-50"><RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} /></button>
               <button aria-label="Sign out" title="Sign out" onClick={() => void signOut()} className="flex h-9 w-9 items-center justify-center border border-white/10 text-slate-400 hover:text-white lg:hidden"><LogOut className="h-4 w-4" /></button>
             </div>
@@ -302,8 +302,8 @@ function EmptyState({ label }: { label: string }) {
   return <div className="flex min-h-28 flex-col items-center justify-center gap-2 px-4 py-7 text-center text-xs text-slate-500"><ClipboardList className="h-5 w-5 text-slate-700" />{label}</div>;
 }
 
-function GateState({ icon, title, label, action, actionLabel }: { icon?: React.ReactNode; title?: string; label: string; action?: () => void; actionLabel?: string }) {
-  return <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#080d12] px-5 text-slate-100"><div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(rgba(99, 229, 200, .12) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 229, 200, .12) 1px, transparent 1px)', backgroundSize: '48px 48px' }} /><div className="relative max-w-md border border-white/10 bg-[#0b1218] p-7 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center border border-emerald-300/30 bg-emerald-300/10 text-emerald-200">{icon || <LoaderCircle className="h-5 w-5 animate-spin" />}</div>{title && <h1 className="mt-5 text-lg font-semibold">{title}</h1>}<p className="mt-2 text-sm text-slate-400">{label}</p>{action && <button onClick={action} className="mt-5 h-10 border border-emerald-300/30 bg-emerald-300/10 px-4 text-sm text-emerald-100 hover:bg-emerald-300/20">{actionLabel}</button>}</div></main>;
+function GateState({ icon, title, label, action, actionLabel, exitHref }: { icon?: React.ReactNode; title?: string; label: string; action?: () => void; actionLabel?: string; exitHref?: string }) {
+  return <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#080d12] px-5 text-slate-100"><div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(rgba(99, 229, 200, .12) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 229, 200, .12) 1px, transparent 1px)', backgroundSize: '48px 48px' }} /><div className="relative max-w-md border border-white/10 bg-[#0b1218] p-7 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center border border-emerald-300/30 bg-emerald-300/10 text-emerald-200">{icon || <LoaderCircle className="h-5 w-5 animate-spin" />}</div>{title && <h1 className="mt-5 text-lg font-semibold">{title}</h1>}<p className="mt-2 text-sm text-slate-400">{label}</p>{action && <button onClick={action} className="mt-5 h-10 border border-emerald-300/30 bg-emerald-300/10 px-4 text-sm text-emerald-100 hover:bg-emerald-300/20">{actionLabel}</button>}{exitHref && <Link href={exitHref} className="mt-5 block text-xs text-slate-500 hover:text-white">Exit to marketplace</Link>}</div></main>;
 }
 
 function formatDate(value: string, short = false): string {

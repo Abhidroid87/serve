@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import {
-  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  GoogleAuthProvider, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, createUserWithEmailAndPassword,
   signOut as firebaseSignOut, type User as FirebaseUser,
 } from 'firebase/auth';
 import { auth, isFirebaseConfigured } from './firebase';
@@ -17,6 +17,7 @@ interface AuthContextValue {
   loading: boolean;
   pendingAction: PendingAction | null;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   setPendingAction: (action: PendingAction | null) => void;
@@ -72,6 +73,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const signInWithGoogle = useCallback(async () => {
+    if (!isFirebaseConfigured()) {
+      return { error: 'Firebase is not configured for this deployment.' };
+    }
+
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Google sign-in failed' };
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     if (!isFirebaseConfigured()) {
       setUser(null);
@@ -86,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user, loading, pendingAction,
-        signIn, signUp, signOut,
+        signIn, signInWithGoogle, signUp, signOut,
         setPendingAction, showAuthModal, setShowAuthModal,
       }}
     >

@@ -39,7 +39,7 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
   const trackingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (service && userLocation) {
+    if (service && userLocation?.lat !== undefined && userLocation.lng !== undefined) {
       getCheckedInProviders(service.id, userLocation.lat, userLocation.lng, 3).then(setNearbyProviders);
     }
   }, [service, userLocation]);
@@ -69,7 +69,7 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
 
   const handleBroadcast = async () => {
     if (!service) return;
-    if (!userLocation) {
+    if (userLocation?.lat === undefined || userLocation.lng === undefined) {
       setError('Select a service area or choose Use my location before broadcasting.');
       return;
     }
@@ -101,7 +101,7 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
 
   const handleAccept = async () => {
     if (!request || !acceptedProvider) return;
-    if (!userLocation || acceptedProvider.latitude === null || acceptedProvider.longitude === null) {
+    if (userLocation?.lat === undefined || userLocation.lng === undefined || acceptedProvider.latitude === null || acceptedProvider.longitude === null) {
       setError('Live tracking is unavailable because the provider location is missing.');
       return;
     }
@@ -124,7 +124,7 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
   };
 
   if (!service) return null;
-  const acceptedDistance = acceptedProvider && userLocation && acceptedProvider.latitude !== null && acceptedProvider.longitude !== null
+  const acceptedDistance = acceptedProvider && userLocation?.lat !== undefined && userLocation.lng !== undefined && acceptedProvider.latitude !== null && acceptedProvider.longitude !== null
     ? haversineDistance(acceptedProvider.latitude, acceptedProvider.longitude, userLocation.lat, userLocation.lng)
     : null;
 
@@ -274,7 +274,7 @@ export function InstantWorkModal({ service, userLocation, onClose, onAccepted }:
               {/* Phase: Tracking */}
               {phase === 'tracking' && acceptedProvider && (
                 <div className="space-y-4">
-                  {acceptedProvider.latitude !== null && acceptedProvider.longitude !== null && userLocation ? (
+                  {acceptedProvider.latitude !== null && acceptedProvider.longitude !== null && userLocation?.lat !== undefined && userLocation.lng !== undefined ? (
                     <div className="relative h-48 rounded-xl overflow-hidden bg-secondary border border-border">
                       <LiveMap
                         providerLat={acceptedProvider.latitude} providerLng={acceptedProvider.longitude}

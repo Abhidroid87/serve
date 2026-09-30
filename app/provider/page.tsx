@@ -1,25 +1,26 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Wrench, ArrowLeft, Star, Calendar, Clock, Zap, CheckCircle2, Radio, Power, Check,
-  MapPin, Phone, User, TrendingUp, Loader2, Bell, Navigation, X,
+  MapPin, Phone, User, TrendingUp, Loader2, Bell, Navigation, X, LogOut, MessageSquareText,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import type { Provider, Booking, Service, ServiceCategory, ProviderAvailability, InstantRequest } from '@/lib/types';
 import {
-  createProviderProfile, getMarketplaceCatalog, getProviderById, getBookingsByProvider, getProviderAvailability, getProviderServices,
+  createProviderProfile, getMarketplaceCatalog, getProviderById, getBookingsByProvider, getProviderAvailability, getProviderServices, getProviderEnquiries,
   getInstantRequestsForProvider, onProviderBookings, acceptInstantRequest, updateProviderCheckIn,
   saveProviderAvailability, saveProviderServices, verifyOTPAndComplete, formatPrice, formatTime, haversineDistance,
-  type ProviderProfileInput,
+  type ProviderProfileInput, type ProviderEnquiry,
 } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function ProviderPage() {
-  const { user, loading: authLoading, setShowAuthModal } = useAuth();
+  const { user, loading: authLoading, setShowAuthModal, signOut } = useAuth();
   const [provider, setProvider] = useState<Provider | null>(null);
   const [catalogServices, setCatalogServices] = useState<Service[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<ServiceCategory[]>([]);
@@ -27,6 +28,7 @@ export default function ProviderPage() {
   const [availability, setAvailability] = useState<ProviderAvailability[]>([]);
   const [providerServices, setProviderServices] = useState<Service[]>([]);
   const [instantRequests, setInstantRequests] = useState<InstantRequest[]>([]);
+  const [providerEnquiries, setProviderEnquiries] = useState<ProviderEnquiry[]>([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -64,12 +66,14 @@ export default function ProviderPage() {
       getProviderAvailability(id),
       getProviderServices(id),
     ]);
-    const [b, ir] = await Promise.all([
+    const [b, ir, enquiries] = await Promise.all([
       getBookingsByProvider(id, s.map((service) => service.id)),
       getInstantRequestsForProvider(id),
+      getProviderEnquiries(id),
     ]);
     setProvider(p); setBookings(b); setAvailability(a); setProviderServices(s);
     setInstantRequests(ir);
+    setProviderEnquiries(enquiries);
   }, []);
 
   useEffect(() => {
@@ -119,6 +123,7 @@ export default function ProviderPage() {
   if (authLoading || loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   if (!user) return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <Link href="/" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to Marketplace</Link>
       <Wrench className="h-9 w-9" />
       <h1 className="text-2xl font-bold">Provider Portal</h1>
       <p className="max-w-md text-sm text-muted-foreground">Sign in or create an account to set up your provider profile and choose the services you offer.</p>
@@ -126,19 +131,27 @@ export default function ProviderPage() {
     </div>
   );
   if (!provider) return (
-    <ProviderOnboarding
-      userName={user.displayName || user.email?.split('@')[0] || ''}
-      userEmail={user.email || ''}
-      categories={catalogCategories}
-      services={catalogServices}
-      initialError={setupError}
-      onCreate={async (profile, serviceIds) => {
-        const created = await createProviderProfile(user.uid, user.email || '', profile, serviceIds);
-        setProvider(created);
-        setProviderServices(catalogServices.filter((service) => serviceIds.includes(service.id)));
-        setActiveTab('overview');
-      }}
-    />
+    <>
+      <header className="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur-lg">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+          <Link href="/" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to Marketplace</Link>
+          <button onClick={() => void signOut()} className="flex h-9 items-center gap-2 border border-border px-3 text-sm font-medium hover:bg-secondary"><LogOut className="h-4 w-4" />Log out</button>
+        </div>
+      </header>
+      <ProviderOnboarding
+        userName={user.displayName || user.email?.split('@')[0] || ''}
+        userEmail={user.email || ''}
+        categories={catalogCategories}
+        services={catalogServices}
+        initialError={setupError}
+        onCreate={async (profile, serviceIds) => {
+          const created = await createProviderProfile(user.uid, user.email || '', profile, serviceIds);
+          setProvider(created);
+          setProviderServices(catalogServices.filter((service) => serviceIds.includes(service.id)));
+          setActiveTab('overview');
+        }}
+      />
+    </>
   );
 
   const activeBookings = bookings.filter((b) => b.status === 'confirmed' || b.status === 'in_progress');
@@ -152,9 +165,7 @@ export default function ProviderPage() {
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <button onClick={() => window.location.href = `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/`} className="p-2 rounded-lg hover:bg-secondary transition-colors">
-                <ArrowLeft className="h-4 w-4" />
-              </button>
+              <Link href="/" className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back to Marketplace</span></Link>
               <div className="flex items-center gap-2">
                 <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-foreground text-background">
                   <Wrench className="h-5 w-5" />
@@ -177,6 +188,7 @@ export default function ProviderPage() {
                 <Power className="h-3.5 w-3.5" />
                 {provider.is_checked_in ? 'Checked In' : 'Check In'}
               </button>
+              <button onClick={() => void signOut()} className="flex h-9 items-center gap-2 border border-border px-3 text-sm font-medium transition-colors hover:bg-secondary"><LogOut className="h-3.5 w-3.5" /><span className="hidden sm:inline">Log out</span></button>
             </div>
           </div>
         </div>
@@ -211,6 +223,7 @@ export default function ProviderPage() {
             { id: 'overview', label: 'Bookings', icon: Calendar },
             { id: 'services', label: 'My Services', icon: Wrench },
             { id: 'instant', label: 'Instant Work', icon: Zap, badge: instantRequests.length },
+            { id: 'enquiries', label: 'Enquiries', icon: MessageSquareText, badge: providerEnquiries.length },
             { id: 'availability', label: 'Availability', icon: Clock },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -399,6 +412,29 @@ export default function ProviderPage() {
               setInstantRequests(await getInstantRequestsForProvider(provider.id));
             }}
           />
+        )}
+
+        {activeTab === 'enquiries' && (
+          <section className="max-w-5xl space-y-3">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold">Customer enquiries</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Requests sent directly from your provider directory profile.</p>
+            </div>
+            {providerEnquiries.length === 0 ? (
+              <div className="border border-border py-12 text-center text-sm text-muted-foreground">No customer enquiries yet.</div>
+            ) : providerEnquiries.map((enquiry) => (
+              <article key={enquiry.id} className="border border-border p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">{enquiry.customer_name}</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">{catalogServices.find((service) => service.id === enquiry.service_id)?.name || 'Service enquiry'} · {new Date(enquiry.created_at).toLocaleString()}</p>
+                  </div>
+                  <a href={`tel:${enquiry.customer_phone}`} className="flex h-9 items-center gap-2 border border-border px-3 text-xs font-medium hover:bg-secondary"><Phone className="h-3.5 w-3.5" />Call {enquiry.customer_phone}</a>
+                </div>
+                <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{enquiry.message}</p>
+              </article>
+            ))}
+          </section>
         )}
 
         {/* Availability */}

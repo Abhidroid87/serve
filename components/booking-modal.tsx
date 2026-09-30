@@ -217,7 +217,7 @@ export function BookingModal({ service, userLocation, onClose, onBookingConfirme
                     {providers.length} providers near you offer this service.
                   </p>
                   {providers.map((p) => {
-                    const dist = userLocation && p.latitude !== null && p.longitude !== null
+                    const dist = userLocation?.lat !== undefined && userLocation.lng !== undefined && p.latitude !== null && p.longitude !== null
                       ? haversineDistance(userLocation.lat, userLocation.lng, p.latitude, p.longitude)
                       : null;
                     return (

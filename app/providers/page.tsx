@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowLeft, BadgeCheck, MapPin, Phone, Search, ShieldCheck, Star, Users, Wrench, Zap } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, Check, MapPin, MessageSquareText, Phone, ShieldCheck, Star, Users, Wrench, X, Zap } from 'lucide-react';
 import { BookingModal } from '@/components/booking-modal';
 import { InstantWorkModal } from '@/components/instant-work-modal';
 import { LocationBar, type UserLocation } from '@/components/location-bar';
+import { useAuth } from '@/lib/auth-context';
 import type { Provider, Service, ServiceCategory } from '@/lib/types';
-import { getMarketplaceCatalog, getProvidersForService } from '@/lib/data';
+import { createProviderEnquiry, getMarketplaceCatalog, getProvidersForService } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
 interface ProviderDirectoryEntry {
@@ -37,6 +38,7 @@ async function getDirectoryEntries(services: Service[], location: UserLocation |
 }
 
 export default function ProvidersPage() {
+  const { user, setShowAuthModal } = useAuth();
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [entries, setEntries] = useState<ProviderDirectoryEntry[]>([]);
@@ -46,6 +48,18 @@ export default function ProvidersPage() {
   const [instantService, setInstantService] = useState<Service | null>(null);
   const [location, setLocation] = useState<UserLocation | null>(null);
   const [search, setSearch] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+  const [minimumRating, setMinimumRating] = useState('0');
+  const [openNow, setOpenNow] = useState(false);
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [revealedNumbers, setRevealedNumbers] = useState<Record<string, boolean>>({});
+  const [enquiryTarget, setEnquiryTarget] = useState<{ provider: Provider; service: Service } | null>(null);
+  const [enquiryName, setEnquiryName] = useState('');
+  const [enquiryPhone, setEnquiryPhone] = useState('');
+  const [enquiryMessage, setEnquiryMessage] = useState('');
+  const [enquiryError, setEnquiryError] = useState('');
+  const [enquirySent, setEnquirySent] = useState(false);
+  const [sendingEnquiry, setSendingEnquiry] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -80,7 +94,7 @@ export default function ProvidersPage() {
     let active = true;
     setLoading(true);
     setError('');
-    const matchingServices = services.filter((service) => service.category_id === categoryId);
+    const matchingServices = services.filter((service) => service.category_id === categoryId && (!selectedServiceId || service.id === selectedServiceId));
     getDirectoryEntries(matchingServices, location)
       .then((nextEntries) => { if (active) setEntries(nextEntries); })
       .catch((loadError: unknown) => {
@@ -90,7 +104,7 @@ export default function ProvidersPage() {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [categoryId, services, location]);
+  }, [categoryId, selectedServiceId, services, location]);
 
   const selectedCategory = categories.find((category) => category.id === categoryId);
   const categoryServices = services.filter((service) => service.category_id === categoryId);
@@ -103,13 +117,50 @@ export default function ProvidersPage() {
       provider.locality || '',
       ...matchedServices.map((service) => service.name),
     ].join(' ').toLowerCase();
-    return haystack.includes(search.toLowerCase());
-  }), [entries, search]);
+    const cityText = `${provider.city || ''} ${provider.locality || ''} ${provider.address || ''}`.toLowerCase();
+    return haystack.includes(search.toLowerCase())
+      && (!cityFilter || cityText.includes(cityFilter.trim().toLowerCase()))
+      && provider.rating >= Number(minimumRating)
+      && (!openNow || provider.is_checked_in)
+      && (!verifiedOnly || provider.is_verified)
+      && (!selectedServiceId || matchedServices.some((service) => service.id === selectedServiceId));
+  }), [entries, search, cityFilter, minimumRating, openNow, verifiedOnly, selectedServiceId]);
 
   const chooseCategory = (nextCategoryId: string) => {
     setCategoryId(nextCategoryId);
     const matchingServices = services.filter((service) => service.category_id === nextCategoryId);
     setSelectedServiceId(matchingServices[0]?.id || '');
+  };
+
+  const handleLocationChange = (nextLocation: UserLocation) => {
+    setLocation(nextLocation);
+    setCityFilter(nextLocation.lat === undefined ? nextLocation.locality : '');
+  };
+
+  const sendEnquiry = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!enquiryTarget) return;
+    if (!user) {
+      setEnquiryError('Sign in to send this enquiry. Your details will stay in this form.');
+      setShowAuthModal(true);
+      return;
+    }
+    setSendingEnquiry(true);
+    setEnquiryError('');
+    try {
+      await createProviderEnquiry({
+        provider_id: enquiryTarget.provider.id,
+        service_id: enquiryTarget.service.id,
+        customer_name: enquiryName.trim(),
+        customer_phone: enquiryPhone.trim(),
+        message: enquiryMessage.trim(),
+      });
+      setEnquirySent(true);
+    } catch (sendError) {
+      setEnquiryError(sendError instanceof Error ? sendError.message : 'Could not send your enquiry.');
+    } finally {
+      setSendingEnquiry(false);
+    }
   };
 
   return (
@@ -136,35 +187,46 @@ export default function ProvidersPage() {
         <div className="py-5">
           <LocationBar
             location={location}
-            onLocationChange={setLocation}
+            onLocationChange={handleLocationChange}
             searchQuery={search}
             onSearchChange={setSearch}
             searchPlaceholder="Search providers or service areas..."
           />
         </div>
 
-        <div className="grid gap-7 py-7 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <aside className="space-y-6">
+        <div className="grid gap-7 py-7 lg:grid-cols-[240px_minmax(0,1fr)]">
+          <aside className="h-fit space-y-6 border border-border p-4 lg:sticky lg:top-5">
             <section>
-              <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Specialty</h2>
-              <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
-                {categories.map((category) => (
-                  <button key={category.id} onClick={() => chooseCategory(category.id)} className={cn('h-9 shrink-0 border px-3 text-left text-sm transition-colors lg:w-full', categoryId === category.id ? 'border-foreground bg-foreground text-background' : 'border-border hover:bg-secondary')}>
-                    {category.name}
-                  </button>
-                ))}
-              </div>
+              <label htmlFor="provider-category" className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">Specialty</label>
+              <select id="provider-category" value={categoryId} onChange={(event) => chooseCategory(event.target.value)} className="h-10 w-full border border-border bg-background px-3 text-sm">
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select>
             </section>
-            <section className="hidden lg:block">
-              <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Services</h2>
-              <div className="space-y-1">
-                {categoryServices.map((service) => (
-                  <button key={service.id} onClick={() => setSelectedServiceId(service.id)} className={cn('w-full px-2 py-2 text-left text-sm transition-colors', selectedServiceId === service.id ? 'bg-secondary font-medium text-foreground' : 'text-muted-foreground hover:text-foreground')}>
-                    {service.name}
-                  </button>
-                ))}
-              </div>
+            <section>
+              <label htmlFor="provider-service" className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">Service</label>
+              <select id="provider-service" value={selectedServiceId} onChange={(event) => setSelectedServiceId(event.target.value)} className="h-10 w-full border border-border bg-background px-3 text-sm">
+                <option value="">All {selectedCategory?.name || 'services'}</option>
+                {categoryServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+              </select>
             </section>
+            <section>
+              <label htmlFor="provider-city" className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">City</label>
+              <input id="provider-city" list="provider-cities" value={cityFilter} onChange={(event) => setCityFilter(event.target.value)} placeholder="Any city" className="h-10 w-full border border-border bg-background px-3 text-sm outline-none focus:border-foreground/40" />
+              <datalist id="provider-cities">{Array.from(new Set(entries.flatMap(({ provider }) => [provider.city, provider.locality]).filter((city): city is string => Boolean(city)))).map((city) => <option key={city} value={city} />)}</datalist>
+            </section>
+            <fieldset>
+              <legend className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Minimum rating</legend>
+              <div className="space-y-2">
+                {[['0', 'Any'], ['3', '3+'], ['4', '4+'], ['4.5', '4.5+']].map(([value, label]) => <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"><input type="radio" name="minimum-rating" value={value} checked={minimumRating === value} onChange={(event) => setMinimumRating(event.target.value)} className="accent-foreground" />{label}{value !== '0' && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />}</label>)}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Availability</legend>
+              <div className="space-y-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={openNow} onChange={(event) => setOpenNow(event.target.checked)} className="accent-foreground" />Open right now</label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={verifiedOnly} onChange={(event) => setVerifiedOnly(event.target.checked)} className="accent-foreground" />Verified businesses only</label>
+              </div>
+            </fieldset>
           </aside>
 
           <section className="min-w-0">
@@ -174,12 +236,8 @@ export default function ProvidersPage() {
                   <h2 className="font-semibold">{selectedService?.name || selectedCategory?.name || 'Available providers'}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">{selectedCategory?.description || 'Providers offering this specialty'}</p>
                 </div>
-                {selectedService && !selectedService.is_sample && location && filteredEntries.some((entry) => entry.provider.is_verified && entry.provider.is_checked_in) && <button onClick={() => setInstantService(selectedService)} className="flex h-9 shrink-0 items-center justify-center gap-2 border border-emerald-600/30 px-3 text-xs font-medium text-emerald-800 hover:bg-emerald-50"><Zap className="h-3.5 w-3.5" /> Request now</button>}
+                {selectedService && !selectedService.is_sample && location?.lat !== undefined && location.lng !== undefined && filteredEntries.some((entry) => entry.provider.is_verified && entry.provider.is_checked_in) && <button onClick={() => setInstantService(selectedService)} className="flex h-9 shrink-0 items-center justify-center gap-2 border border-emerald-600/30 px-3 text-xs font-medium text-emerald-800 hover:bg-emerald-50"><Zap className="h-3.5 w-3.5" /> Request now</button>}
               </div>
-              <label className="flex h-10 items-center gap-2 border border-border px-3 sm:w-72">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or area" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
-              </label>
             </div>
 
             {selectedService?.is_sample && <p className="mb-4 border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-950">Showing sample providers and indicative prices. Live booking is unavailable for sample services.</p>}
@@ -213,8 +271,19 @@ export default function ProvidersPage() {
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">{offeredServices.map((service) => <span key={service.id} className="border border-border px-2 py-1 text-[10px] text-muted-foreground">{service.name}</span>)}</div>
                     </div>
-                    <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
-                      {provider.phone ? <a href={`tel:${provider.phone}`} className="flex h-9 items-center justify-center gap-2 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:bg-foreground/90"><Phone className="h-3.5 w-3.5" /> Contact</a> : <span className="flex h-9 items-center gap-1.5 px-2 text-xs text-muted-foreground"><BadgeCheck className="h-3.5 w-3.5" /> Profile</span>}
+                    <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-stretch">
+                      {provider.phone && (revealedNumbers[provider.id]
+                        ? <a href={`tel:${provider.phone}`} className="flex h-9 items-center justify-center gap-2 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:bg-foreground/90"><Phone className="h-3.5 w-3.5" />{provider.phone}</a>
+                        : <button type="button" onClick={() => setRevealedNumbers((previous) => ({ ...previous, [provider.id]: true }))} className="flex h-9 items-center justify-center gap-2 border border-border px-3 text-xs font-medium hover:bg-secondary"><Phone className="h-3.5 w-3.5" />Show number</button>)}
+                      {offeredServices.length > 0 && <button type="button" onClick={() => {
+                        const service = offeredServices.find((item) => item.id === selectedServiceId) || offeredServices[0];
+                        setEnquiryTarget({ provider, service });
+                        setEnquiryName(user?.displayName || '');
+                        setEnquiryPhone('');
+                        setEnquiryMessage('');
+                        setEnquiryError('');
+                        setEnquirySent(false);
+                      }} className="flex h-9 items-center justify-center gap-2 border border-foreground/30 px-3 text-xs font-medium hover:bg-secondary"><MessageSquareText className="h-3.5 w-3.5" />Send enquiry</button>}
                       {provider.is_verified && offeredServices.length > 0 && !offeredServices.every((service) => service.is_sample) && <button onClick={() => setBookingService(offeredServices.find((service) => service.id === selectedServiceId && !service.is_sample) || offeredServices.find((service) => !service.is_sample) || null)} className="h-9 border border-border px-3 text-xs font-medium transition-colors hover:bg-secondary">Schedule service</button>}
                       {provider.is_verified && provider.is_checked_in && <span className="text-center text-[10px] text-emerald-700">Available now</span>}
                     </div>
@@ -237,6 +306,18 @@ export default function ProvidersPage() {
         onClose={() => setInstantService(null)}
         onAccepted={() => setInstantService(null)}
       />
+      {enquiryTarget && <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/55 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEnquiryTarget(null); }}>
+        <motion.form initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} onSubmit={sendEnquiry} className="w-full max-w-md border border-border bg-card p-5 shadow-2xl sm:p-6">
+          <div className="flex items-start justify-between gap-4"><div><p className="text-xs uppercase text-muted-foreground">Provider enquiry</p><h2 className="mt-1 text-lg font-semibold">{enquiryTarget.provider.business_name || enquiryTarget.provider.name}</h2><p className="mt-1 text-sm text-muted-foreground">{enquiryTarget.service.name}</p></div><button type="button" aria-label="Close enquiry" onClick={() => setEnquiryTarget(null)} className="p-2 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button></div>
+          {enquirySent ? <div className="mt-5 flex items-center gap-2 border border-emerald-700/20 bg-emerald-50 p-3 text-sm text-emerald-900"><Check className="h-4 w-4" />Enquiry sent. The provider can contact you using your details.</div> : <>
+            <label className="mt-5 block text-sm">Your name<input required value={enquiryName} onChange={(event) => setEnquiryName(event.target.value)} className="mt-1.5 h-10 w-full border border-border bg-background px-3" /></label>
+            <label className="mt-3 block text-sm">Phone number<input required type="tel" value={enquiryPhone} onChange={(event) => setEnquiryPhone(event.target.value)} className="mt-1.5 h-10 w-full border border-border bg-background px-3" /></label>
+            <label className="mt-3 block text-sm">How can they help?<textarea required value={enquiryMessage} onChange={(event) => setEnquiryMessage(event.target.value)} rows={3} className="mt-1.5 w-full resize-y border border-border bg-background p-3" /></label>
+            {enquiryError && <p role="alert" className="mt-3 text-sm text-destructive">{enquiryError}</p>}
+            <button disabled={sendingEnquiry} className="mt-4 flex h-10 w-full items-center justify-center gap-2 bg-foreground px-4 text-sm font-medium text-background disabled:opacity-50"><MessageSquareText className="h-4 w-4" />{sendingEnquiry ? 'Sending…' : user ? 'Send enquiry' : 'Sign in and send enquiry'}</button>
+          </>}
+        </motion.form>
+      </div>}
     </main>
   );
 }
