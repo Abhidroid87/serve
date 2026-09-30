@@ -5,14 +5,14 @@ import { motion } from 'framer-motion';
 import { Zap, Wrench, ShieldCheck, CreditCard, Star, ArrowRight, CheckCircle2, Lock } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { LocationBar, detectLocation, type UserLocation } from '@/components/location-bar';
+import { LocationBar, type UserLocation } from '@/components/location-bar';
 import { ServiceCard } from '@/components/service-card';
 import { BookingModal } from '@/components/booking-modal';
 import { InstantWorkModal } from '@/components/instant-work-modal';
 import { BookingsList } from '@/components/bookings-list';
 import { useAuth } from '@/lib/auth-context';
 import type { Service, ServiceCategory, Provider, Booking, InstantRequest } from '@/lib/types';
-import { getCategories, getAllServices, getProvidersForService } from '@/lib/data';
+import { getMarketplaceCatalog, getProvidersForService } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
 function getIcon(name: string): LucideIcon {
@@ -27,26 +27,44 @@ export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
+  const [providerNotice, setProviderNotice] = useState<string | null>(null);
   const [providerCache, setProviderCache] = useState<Record<string, Provider[]>>({});
   const [bookingService, setBookingService] = useState<Service | null>(null);
   const [instantService, setInstantService] = useState<Service | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeTab, setActiveTab] = useState('discover');
 
-  useEffect(() => { detectLocation().then(setLocation); }, []);
   useEffect(() => {
-    getCategories().then(setCategories);
-    getAllServices().then(setServices);
+    let active = true;
+    getMarketplaceCatalog().then((catalog) => {
+      if (!active) return;
+      setCategories(catalog.categories);
+      setServices(catalog.services);
+      setCatalogNotice(catalog.notice);
+    });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
     if (services.length === 0) return;
+    if (services.every((service) => service.is_sample)) {
+      setProviderCache({});
+      return;
+    }
     const loadProviders = async () => {
       const cache: Record<string, Provider[]> = {};
-      for (const s of services) {
-        cache[s.id] = await getProvidersForService(s.id, location?.lat, location?.lng, 10);
+      try {
+        for (const s of services) {
+          if (s.is_sample) continue;
+          cache[s.id] = await getProvidersForService(s.id, location?.lat, location?.lng, 10);
+        }
+        setProviderCache(cache);
+        setProviderNotice(null);
+      } catch (error) {
+        const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : 'unavailable';
+        setProviderNotice(`Firebase could not load provider availability (${code}). Services are still shown, but provider counts may be unavailable.`);
       }
-      setProviderCache(cache);
     };
     loadProviders();
   }, [services, location]);
@@ -101,11 +119,17 @@ export default function Home() {
     }
   }, [user, pendingAction, setPendingAction]);
 
+  const verifiedProviders = Array.from(new Map(
+    Object.values(providerCache).flat().filter((provider) => provider.is_verified).map((provider) => [provider.id, provider]),
+  ).values());
+  const averageRating = verifiedProviders.length
+    ? (verifiedProviders.reduce((total, provider) => total + provider.rating, 0) / verifiedProviders.length).toFixed(1)
+    : '—';
   const stats = [
-    { label: 'Verified Providers', value: '10+' },
-    { label: 'Services', value: '22+' },
-    { label: 'Avg Rating', value: '4.7' },
-    { label: 'Instant Dispatch', value: '3km' },
+    { label: 'Verified Providers', value: String(verifiedProviders.length) },
+    { label: 'Services', value: String(services.length) },
+    { label: 'Avg Rating', value: averageRating },
+    { label: 'Instant Dispatch', value: '3 km' },
   ];
 
   const features = [
@@ -144,7 +168,7 @@ export default function Home() {
                 onClick={() => window.open(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/provider/`, '_blank')}
                 className="text-sm font-medium px-4 py-2 rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors hidden sm:flex items-center gap-1.5"
               >
-                Provider <ArrowRight className="h-3.5 w-3.5" />
+                Become a Service Provider <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
@@ -240,6 +264,16 @@ export default function Home() {
 
         {activeTab === 'discover' && (
           <div className="space-y-6">
+            {catalogNotice && (
+              <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                {catalogNotice}
+              </div>
+            )}
+            {providerNotice && (
+              <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                {providerNotice}
+              </div>
+            )}
             {/* Category filter */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
               <button

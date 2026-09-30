@@ -1,8 +1,9 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  query, where, orderBy, onSnapshot, serverTimestamp,
+  query, where, orderBy, onSnapshot, serverTimestamp, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { sampleCategories, sampleServices } from './catalog';
 import type {
   ServiceCategory, Service, Provider, ProviderAvailability,
   Booking, PricingBreakdown, TimeSlot, InstantRequest, Transaction, Review,
@@ -18,6 +19,49 @@ const BOOKINGS = 'bookings';
 const TRANSACTIONS = 'transactions';
 const INSTANT_REQUESTS = 'instant_requests';
 const REVIEWS = 'reviews';
+
+export interface MarketplaceCatalog {
+  categories: ServiceCategory[];
+  services: Service[];
+  source: 'firestore' | 'sample';
+  notice: string | null;
+}
+
+export async function getMarketplaceCatalog(): Promise<MarketplaceCatalog> {
+  try {
+    const [categorySnap, serviceSnap] = await Promise.all([
+      getDocs(collection(db, CATEGORIES)),
+      getDocs(collection(db, SERVICES)),
+    ]);
+    const categories = categorySnap.docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() } as ServiceCategory));
+    const services = serviceSnap.docs
+      .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() } as Service))
+      .filter((service) => service.is_active !== false)
+      .map((service) => ({
+        ...service,
+        category: categories.find((category) => category.id === service.category_id),
+      }));
+
+    if (services.length > 0) {
+      return { categories, services, source: 'firestore', notice: null };
+    }
+
+    return {
+      categories: sampleCategories,
+      services: sampleServices,
+      source: 'sample',
+      notice: 'Your Firebase catalog has no services yet. Showing sample trades and indicative prices; bookings are disabled for these examples.',
+    };
+  } catch (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : 'unavailable';
+    return {
+      categories: sampleCategories,
+      services: sampleServices,
+      source: 'sample',
+      notice: `Firebase could not load the service catalog (${code}). Showing sample trades and indicative prices; bookings are disabled for these examples.`,
+    };
+  }
+}
 
 // ============ READS ============
 
@@ -91,6 +135,51 @@ export async function getProviderById(id: string): Promise<Provider | null> {
   return { id: d.id, ...d.data() } as Provider;
 }
 
+export interface ProviderProfileInput {
+  name: string;
+  business_name: string;
+  phone: string;
+  address: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+}
+
+export async function createProviderProfile(
+  uid: string,
+  email: string,
+  profile: ProviderProfileInput,
+  serviceIds: string[],
+): Promise<Provider> {
+  if (serviceIds.length === 0) throw new Error('Choose at least one service to offer.');
+  const provider: Omit<Provider, 'id'> = {
+    ...profile,
+    email,
+    auth_uid: uid,
+    avatar_url: null,
+    bio: null,
+    locality: profile.city,
+    service_radius_km: 5,
+    is_verified: false,
+    is_checked_in: false,
+    rating: 0,
+    total_reviews: 0,
+    total_jobs: 0,
+    created_at: new Date().toISOString(),
+  };
+  const batch = writeBatch(db);
+  batch.set(doc(db, PROVIDERS, uid), provider);
+  for (const serviceId of serviceIds) {
+    batch.set(doc(db, PROVIDER_SERVICES, `${uid}_${serviceId}`), {
+      provider_id: uid,
+      service_id: serviceId,
+      custom_price: null,
+    });
+  }
+  await batch.commit();
+  return { id: uid, ...provider };
+}
+
 export async function getProviderAvailability(providerId: string): Promise<ProviderAvailability[]> {
   const snap = await getDocs(query(collection(db, PROVIDER_AVAILABILITY), where('provider_id', '==', providerId)));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProviderAvailability));
@@ -103,15 +192,34 @@ export async function getProviderServices(providerId: string): Promise<Service[]
   for (const sid of serviceIds) {
     const sd = await getDoc(doc(db, SERVICES, sid));
     if (sd.exists()) services.push({ id: sd.id, ...sd.data() } as Service);
+    else {
+      const sample = sampleServices.find((service) => service.id === sid);
+      if (sample) services.push(sample);
+    }
   }
   return services;
 }
 
-export async function getBookingsByProvider(providerId: string): Promise<Booking[]> {
+export async function saveProviderServices(providerId: string, serviceIds: string[]): Promise<void> {
+  const current = await getDocs(query(collection(db, PROVIDER_SERVICES), where('provider_id', '==', providerId)));
+  const batch = writeBatch(db);
+  for (const relation of current.docs) batch.delete(relation.ref);
+  for (const serviceId of serviceIds) {
+    batch.set(doc(db, PROVIDER_SERVICES, `${providerId}_${serviceId}`), {
+      provider_id: providerId,
+      service_id: serviceId,
+      custom_price: null,
+    });
+  }
+  await batch.commit();
+}
+
+export async function getBookingsByProvider(providerId: string, serviceIds?: string[]): Promise<Booking[]> {
   const snap = await getDocs(query(collection(db, BOOKINGS), where('provider_id', '==', providerId)));
   const bookings: Booking[] = [];
   for (const b of snap.docs) {
     const booking = { id: b.id, ...b.data() } as Booking;
+    if (serviceIds && !serviceIds.includes(booking.service_id)) continue;
     const [pd, sd] = await Promise.all([getDoc(doc(db, PROVIDERS, booking.provider_id)), getDoc(doc(db, SERVICES, booking.service_id))]);
     if (pd.exists()) booking.provider = { id: pd.id, ...pd.data() } as Provider;
     if (sd.exists()) booking.service = { id: sd.id, ...sd.data() } as Service;
@@ -462,10 +570,10 @@ export function calculatePricing(service: Service, quantity: number = 1): Pricin
     lineItemLabel = service.name;
     subtotal = base;
   } else if (service.pricing_type === 'hourly') {
-    lineItemLabel = `${service.name} (${quantity} ${service.unit_label || 'hour'}${quantity > 1 ? 's' : ''} @ $${base}/${service.unit_label || 'hour'})`;
+    lineItemLabel = `${service.name} (${quantity} ${service.unit_label || 'hour'}${quantity > 1 ? 's' : ''} @ ${formatPrice(base)}/${service.unit_label || 'hour'})`;
     subtotal = base * quantity;
   } else if (service.pricing_type === 'unit') {
-    lineItemLabel = `${service.name} (${quantity} ${service.unit_label || 'unit'}${quantity > 1 ? 's' : ''} @ $${base}/${service.unit_label || 'unit'})`;
+    lineItemLabel = `${service.name} (${quantity} ${service.unit_label || 'unit'}${quantity > 1 ? 's' : ''} @ ${formatPrice(base)}/${service.unit_label || 'unit'})`;
     subtotal = base * quantity;
   }
   const platformFee = Math.round(subtotal * 0.1 * 100) / 100;
@@ -483,7 +591,7 @@ export function calculatePricing(service: Service, quantity: number = 1): Pricin
 }
 
 export function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`;
+  return `₹${price.toFixed(2)}`;
 }
 
 export function formatPricingType(service: Service): string {

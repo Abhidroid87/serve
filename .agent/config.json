@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "project": "Kehi local services marketplace",
+  "workflow": {
+    "branchBeforeChanges": true,
+    "protectLocalEnvironmentFiles": true,
+    "validateWith": ["npm run typecheck", "NEXT_PUBLIC_BASE_PATH=/serve npm run build"]
+  },
+  "architecture": {
+    "framework": "Next.js 13 App Router",
+    "language": "TypeScript",
+    "database": "Cloud Firestore via lib/data.ts",
+    "authentication": "Firebase Authentication via lib/auth-context.tsx"
+  },
+  "constraints": [
+    "Never copy Firebase configuration, credentials, or database records from another repository.",
+    "Firestore rules are the authorization boundary; client-side filtering is not security.",
+    "Do not invent completed-job examples or customer data."
+  ]
+}
