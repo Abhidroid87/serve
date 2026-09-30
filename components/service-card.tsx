@@ -26,8 +26,9 @@ function getIcon(name: string): LucideIcon {
 export function ServiceCard({ service, providers, userLat, userLng, onBook, onInstantWork }: ServiceCardProps) {
   const Icon = getIcon(service.icon);
   const availableProviders = providers.filter((p) => p.is_checked_in && p.is_verified);
-  const nearestDist = userLat && userLng && providers.length > 0
-    ? Math.min(...providers.map((p) => haversineDistance(userLat, userLng, p.latitude, p.longitude)))
+  const locatedProviders = providers.filter((provider) => provider.latitude !== null && provider.longitude !== null);
+  const nearestDist = userLat !== undefined && userLng !== undefined && locatedProviders.length > 0
+    ? Math.min(...locatedProviders.map((p) => haversineDistance(userLat, userLng, p.latitude as number, p.longitude as number)))
     : null;
 
   return (
