@@ -15,6 +15,7 @@ interface LocationBarProps {
   onLocationChange: (location: UserLocation) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  searchPlaceholder?: string;
 }
 
 const LOCALITIES = [
@@ -56,7 +57,7 @@ export function detectLocation(): Promise<UserLocation> {
   });
 }
 
-export function LocationBar({ location, onLocationChange, searchQuery, onSearchChange }: LocationBarProps) {
+export function LocationBar({ location, onLocationChange, searchQuery, onSearchChange, searchPlaceholder = 'Search services...' }: LocationBarProps) {
   const [detecting, setDetecting] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -73,7 +74,7 @@ export function LocationBar({ location, onLocationChange, searchQuery, onSearchC
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Search services..."
+          placeholder={searchPlaceholder}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           className="w-full h-11 pl-10 pr-4 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-foreground/30 transition-all"
