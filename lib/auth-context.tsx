@@ -31,9 +31,10 @@ function getAuthErrorMessage(error: unknown): string {
   const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
   switch (code) {
     case 'auth/invalid-credential':
+    case 'auth/invalid-login-credentials':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
-      return 'Email or password is incorrect. Check that this user exists in Firebase Authentication.';
+      return 'Email or password is incorrect. Confirm this account exists in Firebase Authentication for this project and reset its password if needed.';
     case 'auth/email-already-in-use':
       return 'This email already has an account. Switch to Sign in.';
     case 'auth/operation-not-allowed':
