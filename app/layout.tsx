@@ -7,9 +7,9 @@ import { AuthModal } from '@/components/auth-modal';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Kehi — Local Services Marketplace',
+  title: 'Kehi — Your Local Gateway',
   description:
-    'Book trusted local service providers with 100% upfront pricing, instant booking, and real-time availability tracking.',
+    'Discover neighborhood stores, dining, activities, and trusted home services across Kathmandu and beyond.',
 };
 
 export default function RootLayout({

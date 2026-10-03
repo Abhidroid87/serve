@@ -15,6 +15,7 @@ interface LocationBarProps {
   onLocationChange: (location: UserLocation) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  onSearchOpen?: () => void;
   searchPlaceholder?: string;
 }
 
@@ -38,7 +39,7 @@ export function detectLocation(): Promise<UserLocation> {
   });
 }
 
-export function LocationBar({ location, onLocationChange, searchQuery, onSearchChange, searchPlaceholder = 'Search services...' }: LocationBarProps) {
+export function LocationBar({ location, onLocationChange, searchQuery, onSearchChange, onSearchOpen, searchPlaceholder = 'Search services...' }: LocationBarProps) {
   const [detecting, setDetecting] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [manualCity, setManualCity] = useState('');
@@ -57,7 +58,7 @@ export function LocationBar({ location, onLocationChange, searchQuery, onSearchC
     }
   };
 
-  const useManualCity = () => {
+  const applyManualCity = () => {
     const city = manualCity.trim();
     if (!city) return;
     onLocationChange({ locality: city });
@@ -73,7 +74,11 @@ export function LocationBar({ location, onLocationChange, searchQuery, onSearchC
           type="text"
           placeholder={searchPlaceholder}
           value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          readOnly
+          onClick={onSearchOpen}
+          onFocus={onSearchOpen}
+          aria-label="Open marketplace search"
+          role="button"
           className="w-full h-11 pl-10 pr-4 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-foreground/30 transition-all"
         />
       </div>
@@ -88,7 +93,7 @@ export function LocationBar({ location, onLocationChange, searchQuery, onSearchC
           className="flex items-center gap-2 h-11 px-4 rounded-lg border border-border bg-background text-sm font-medium hover:bg-secondary transition-colors w-full sm:w-auto"
         >
           <MapPin className="h-4 w-4" />
-          <span className="truncate">{location ? location.locality : 'Select area'}</span>
+          <span className="truncate">{location ? `${location.locality === 'Kathmandu' ? 'Kathmandu, Nepal' : location.locality}` : 'Select area'}</span>
         </button>
         {showDropdown && (
           <>
@@ -102,7 +107,15 @@ export function LocationBar({ location, onLocationChange, searchQuery, onSearchC
                 <Crosshair className={cn('h-4 w-4', detecting && 'animate-spin')} />
                 {detecting ? 'Detecting...' : 'Use my location'}
               </button>
-              <form onSubmit={(event) => { event.preventDefault(); useManualCity(); }} className="mt-2 border-t border-border pt-3">
+              <div className="mt-2 border-t border-border pt-3">
+                <p className="mb-2 px-3 text-xs font-medium text-muted-foreground">Popular around Kathmandu</p>
+                <div className="flex flex-wrap gap-1.5 px-2">
+                  {['Kathmandu', 'Jhamsikhel', 'Thamel', 'New Road', 'Pulchowk', 'Baneshwor'].map((area) => (
+                    <button key={area} onClick={() => { onLocationChange({ locality: area }); setShowDropdown(false); }} className="rounded-full border border-border px-2.5 py-1.5 text-xs transition hover:border-foreground/40 hover:bg-secondary">{area}</button>
+                  ))}
+                </div>
+              </div>
+              <form onSubmit={(event) => { event.preventDefault(); applyManualCity(); }} className="mt-2 border-t border-border pt-3">
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor="manual-city">Search or enter a city</label>
                 <div className="flex gap-2">
                   <input id="manual-city" value={manualCity} onChange={(event) => setManualCity(event.target.value)} placeholder="City or service area" className="h-10 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-foreground/40" />
