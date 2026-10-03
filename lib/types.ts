@@ -62,6 +62,25 @@ export interface Provider {
   created_at: string;
   auth_uid?: string;
   is_rejected?: boolean;
+  businessType?: ProviderBusinessType;
+  fulfillmentType?: 'doorstep_dispatch';
+  isInstantDispatchEligible?: boolean;
+  fulfillment?: ProviderFulfillment;
+  opening_time?: string;
+  closing_time?: string;
+  is_open?: boolean;
+}
+
+export type ProviderBusinessType = 'service_provider' | 'retail_store' | 'activity_dining' | 'experience_provider';
+
+export interface ProviderFulfillment {
+  categories?: string[];
+  walkInAllowed?: boolean;
+  appointmentRequired?: boolean;
+  localHomeDelivery?: boolean;
+  deliveryRadiusKm?: number | null;
+  estimatedDeliveryTime?: string;
+  storePickup?: boolean;
 }
 
 export interface ProviderService {

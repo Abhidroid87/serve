@@ -8,16 +8,145 @@ import {
   MapPin, Phone, User, TrendingUp, Loader2, Bell, Navigation, X, LogOut, MessageSquareText,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import type { Provider, Booking, Service, ServiceCategory, ProviderAvailability, InstantRequest } from '@/lib/types';
+import type { Provider, Booking, Service, ServiceCategory, ProviderAvailability, InstantRequest, ProviderBusinessType } from '@/lib/types';
 import {
   createProviderProfile, getMarketplaceCatalog, getProviderById, getBookingsByProvider, getProviderAvailability, getProviderServices, getProviderEnquiries,
   getInstantRequestsForProvider, onProviderBookings, acceptInstantRequest, updateProviderCheckIn,
-  saveProviderAvailability, saveProviderServices, verifyOTPAndComplete, formatPrice, formatTime, haversineDistance,
+  saveProviderAvailability, saveProviderServices, verifyOTPAndComplete, formatPrice, formatTime, haversineDistance, updateProviderBusinessSettings,
   type ProviderProfileInput, type ProviderEnquiry,
 } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+const PROVIDER_TYPES: { id: ProviderBusinessType; label: { en: string; ne: string } }[] = [
+  { id: 'service_provider', label: { en: '🔧 Home Repair & Maintenance', ne: '🔧 घर मर्मत तथा सम्भार' } },
+  { id: 'retail_store', label: { en: '🏪 Retail Store & Physical Shop', ne: '🏪 खुद्रा पसल तथा भौतिक स्टोर' } },
+  { id: 'activity_dining', label: { en: '💇 Salons, Dining & Activities', ne: '💇 सैलुन, भोजन तथा गतिविधिहरू' } },
+];
+
+const COPY = {
+  en: {
+    businessDetails: 'Business details',
+    onboarding: 'Provider onboarding',
+    setupTitle: 'Set up your provider profile',
+    setupDescription: 'Add your business details and choose what you offer.',
+    businessName: 'Business name',
+    phone: 'Contact phone',
+    address: 'Work address',
+    city: 'City / service area',
+    services: 'Services you provide',
+    categoryHelp: 'Select every category that matches your business.',
+    repairHelp: 'Select every service you are qualified to take on.',
+    providerType: 'Provider type',
+    storeFulfillment: 'Store fulfillment',
+    visitOptions: 'Visit options',
+    walkIn: 'Walk-in / In-store shopping',
+    walkInHelp: 'Customers can visit your physical address during open hours.',
+    localDelivery: 'Local home delivery',
+    localDeliveryHelp: 'Direct doorstep delivery to nearby customers.',
+    deliveryRadius: 'Delivery radius (km)',
+    deliveryTime: 'Estimated delivery time',
+    storePickup: 'Store pickup (Click & Collect)',
+    storePickupHelp: 'Customers order online and collect in person from your counter.',
+    appointment: 'Appointment / seat reservation required',
+    appointmentHelp: 'Require customers to select a time slot before visiting.',
+    openingTime: 'Opening time',
+    closingTime: 'Closing time',
+    liveStatus: 'Live status',
+    currentlyOpen: 'Currently Open',
+    currentlyClosed: 'Currently Closed',
+    save: 'Save settings',
+    saving: 'Saving…',
+    settings: 'Business settings',
+    catalog: 'Catalog categories / price list',
+    catalogNote: 'Manage the categories you offer. Product-level inventory and pricing are not configured yet.',
+    requests: 'Live Order / Pickup Requests',
+    appointments: "Today's Appointments & Table Bookings",
+    noOrders: 'No live order or pickup requests yet.',
+    noAppointments: 'No appointments or table bookings yet.',
+    customer: 'Customer',
+    slot: 'Slot time',
+    service: 'Service booked',
+    phoneLabel: 'Phone',
+    repairs: 'Repair services',
+    dashboard: 'Provider Dashboard',
+    logOut: 'Log out',
+    bookings: 'Bookings',
+    myServices: 'My Services',
+    instantWork: 'Instant Work',
+    enquiries: 'Enquiries',
+    availability: 'Availability',
+  },
+  ne: {
+    businessDetails: 'व्यापार विवरण',
+    onboarding: 'प्रदायक दर्ता',
+    setupTitle: 'आफ्नो प्रदायक प्रोफाइल सेटअप गर्नुहोस्',
+    setupDescription: 'व्यापार विवरण थप्नुहोस् र तपाईंले प्रदान गर्ने सेवा छान्नुहोस्।',
+    businessName: 'व्यापारको नाम',
+    phone: 'सम्पर्क फोन',
+    address: 'कार्यस्थलको ठेगाना',
+    city: 'सहर / सेवा क्षेत्र',
+    services: 'तपाईंले प्रदान गर्ने सेवाहरू',
+    categoryHelp: 'तपाईंको व्यापारसँग मिल्ने सबै वर्ग छान्नुहोस्।',
+    repairHelp: 'तपाईंले गर्न सक्ने सबै सेवा छान्नुहोस्।',
+    providerType: 'सेवा प्रदायकको प्रकार',
+    storeFulfillment: 'पसल डेलिभरी र सेवा विकल्प',
+    visitOptions: 'भ्रमण विकल्पहरू',
+    walkIn: 'पसलमा आएर किनमेल',
+    walkInHelp: 'खुला समयमा ग्राहकहरू तपाईंको ठेगानामा आउन सक्छन्।',
+    localDelivery: 'स्थानीय घर डेलिभरी',
+    localDeliveryHelp: 'नजिकका ग्राहकलाई ढोकासम्म सामान पुर्‍याउनुहोस्।',
+    deliveryRadius: 'डेलिभरी दूरी (कि.मि.)',
+    deliveryTime: 'अनुमानित डेलिभरी समय',
+    storePickup: 'पसलबाट लिनुहोस् (Click & Collect)',
+    storePickupHelp: 'ग्राहकले अनलाइन अर्डर गरी काउन्टरबाट सामान लिन सक्छन्।',
+    appointment: 'अपोइन्टमेन्ट / सिट आरक्षण आवश्यक',
+    appointmentHelp: 'भ्रमणअघि ग्राहकले समय छान्नुपर्ने बनाउनुहोस्।',
+    openingTime: 'खुल्ने समय',
+    closingTime: 'बन्द हुने समय',
+    liveStatus: 'लाइभ स्थिति',
+    currentlyOpen: 'हाल खुला छ',
+    currentlyClosed: 'हाल बन्द छ',
+    save: 'सेटिङ सुरक्षित गर्नुहोस्',
+    saving: 'सुरक्षित हुँदैछ…',
+    settings: 'व्यापार सेटिङ',
+    catalog: 'क्याटलग वर्ग / मूल्य सूची',
+    catalogNote: 'तपाईंले प्रदान गर्ने वर्ग व्यवस्थापन गर्नुहोस्। वस्तु-स्तरको मौज्दात र मूल्य अझै सेट गरिएको छैन।',
+    requests: 'लाइभ अर्डर / पिकअप अनुरोधहरू',
+    appointments: 'आजका अपोइन्टमेन्ट र टेबल बुकिङ',
+    noOrders: 'अहिलेसम्म कुनै लाइभ अर्डर वा पिकअप अनुरोध छैन।',
+    noAppointments: 'अहिलेसम्म कुनै अपोइन्टमेन्ट वा टेबल बुकिङ छैन।',
+    customer: 'ग्राहक',
+    slot: 'समय',
+    service: 'बुक गरिएको सेवा',
+    phoneLabel: 'फोन',
+    repairs: 'मर्मत सेवा',
+    dashboard: 'प्रदायक ड्यासबोर्ड',
+    logOut: 'लगआउट',
+    bookings: 'बुकिङहरू',
+    myServices: 'मेरा सेवाहरू',
+    instantWork: 'तत्काल काम',
+    enquiries: 'सोधपुछ',
+    availability: 'उपलब्धता',
+  },
+} as const;
+
+const RETAIL_CATEGORIES = [
+  { name: 'Kirana & Grocery', description: 'Daily staples, packaged goods, beverages & household essentials.', tag: 'Store pickup & delivery eligible' },
+  { name: 'Clothing & Fashion', description: 'Apparel, traditional wear, footwear & boutique accessories.', tag: 'Walk-in & fitting available' },
+  { name: 'Electronics & Spares', description: 'Gadgets, mobile accessories, electronic appliances & spares.', tag: 'Warranty & in-store testing' },
+  { name: 'Bakeries & Confectionery', description: 'Fresh cakes, bread, local pastries & custom celebration orders.', tag: 'Same-day pickup' },
+  { name: 'Hardware & Sanitary Supplies', description: 'Tools, construction fittings, electrical & plumbing supplies.', tag: 'Bulk order eligible' },
+];
+
+const EXPERIENCE_CATEGORIES = [
+  { name: 'Hair Salon & Grooming', description: 'Haircuts, styling, coloring, beard grooming & head massage.', tag: 'Time-slot appointments' },
+  { name: 'Spa & Wellness', description: 'Body therapies, facials, relaxation massages & skin care.', tag: 'Prior booking recommended' },
+  { name: 'Cafe & Bistro', description: 'Artisanal coffee, baked treats, casual brunch & dine-in vibes.', tag: 'Dine-in & take-away' },
+  { name: 'Gaming & Entertainment', description: 'Console gaming, board games, arcade & recreational zones.', tag: 'Hourly session passes' },
+  { name: 'Fitness, Yoga & Gym', description: 'Daily passes, personal training, yoga sessions & gym access.', tag: 'Walk-in & memberships' },
+];
 
 export default function ProviderPage() {
   const { user, loading: authLoading, setShowAuthModal, signOut } = useAuth();
@@ -29,10 +158,11 @@ export default function ProviderPage() {
   const [providerServices, setProviderServices] = useState<Service[]>([]);
   const [instantRequests, setInstantRequests] = useState<InstantRequest[]>([]);
   const [providerEnquiries, setProviderEnquiries] = useState<ProviderEnquiry[]>([]);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState<string>('overview');
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState('');
+  const [language, setLanguage] = useState<'en' | 'ne'>('en');
 
   useEffect(() => {
     if (authLoading) return;
@@ -77,20 +207,20 @@ export default function ProviderPage() {
   }, []);
 
   useEffect(() => {
-    if (!provider?.id) return;
+    if (!provider?.id || (provider.businessType && provider.businessType !== 'service_provider')) return;
     return onProviderBookings(provider.id, () => {
       void loadProviderData(provider.id);
     });
-  }, [provider?.id, loadProviderData]);
+  }, [provider?.id, provider?.businessType, loadProviderData]);
 
   useEffect(() => {
-    if (!provider?.id || !provider.is_checked_in) return;
+    if (!provider?.id || (provider.businessType && provider.businessType !== 'service_provider') || !provider.is_checked_in) return;
     const interval = setInterval(async () => {
       const ir = await getInstantRequestsForProvider(provider.id);
       setInstantRequests(ir);
     }, 3000);
     return () => clearInterval(interval);
-  }, [provider?.id, provider?.is_checked_in]);
+  }, [provider?.id, provider?.businessType, provider?.is_checked_in]);
 
   const handleCheckInToggle = async () => {
     if (!provider) return;
@@ -135,7 +265,10 @@ export default function ProviderPage() {
       <header className="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur-lg">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <Link href="/" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to Marketplace</Link>
-          <button onClick={() => void signOut()} className="flex h-9 items-center gap-2 border border-border px-3 text-sm font-medium hover:bg-secondary"><LogOut className="h-4 w-4" />Log out</button>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher language={language} onChange={setLanguage} />
+            <button onClick={() => void signOut()} className="flex h-9 items-center gap-2 border border-border px-3 text-sm font-medium hover:bg-secondary"><LogOut className="h-4 w-4" />{COPY[language].logOut}</button>
+          </div>
         </div>
       </header>
       <ProviderOnboarding
@@ -144,6 +277,7 @@ export default function ProviderPage() {
         categories={catalogCategories}
         services={catalogServices}
         initialError={setupError}
+        language={language}
         onCreate={async (profile, serviceIds) => {
           const created = await createProviderProfile(user.uid, user.email || '', profile, serviceIds);
           setProvider(created);
@@ -157,6 +291,44 @@ export default function ProviderPage() {
   const activeBookings = bookings.filter((b) => b.status === 'confirmed' || b.status === 'in_progress');
   const completedBookings = bookings.filter((b) => b.status === 'completed');
   const totalEarnings = completedBookings.reduce((s, b) => s + b.total_price, 0);
+  const isServiceProvider = !provider.businessType || provider.businessType === 'service_provider';
+  const isRetailStore = provider.businessType === 'retail_store';
+  const isExperienceProvider = provider.businessType === 'activity_dining' || provider.businessType === 'experience_provider';
+  const labels = COPY[language];
+  const isOpen = provider.is_open ?? true;
+  const dashboardTabs: { id: string; label: string; icon: typeof Calendar; badge?: number }[] = isServiceProvider
+    ? [
+        { id: 'overview', label: labels.bookings, icon: Calendar },
+        { id: 'services', label: labels.myServices, icon: Wrench },
+        { id: 'instant', label: labels.instantWork, icon: Zap, badge: instantRequests.length },
+        { id: 'enquiries', label: labels.enquiries, icon: MessageSquareText, badge: providerEnquiries.length },
+        { id: 'availability', label: labels.availability, icon: Clock },
+      ]
+    : isRetailStore
+      ? [
+          { id: 'overview', label: labels.requests, icon: Calendar },
+          { id: 'catalog', label: labels.catalog, icon: Wrench },
+          { id: 'settings', label: labels.settings, icon: Clock },
+        ]
+      : [
+          { id: 'overview', label: labels.appointments, icon: Calendar },
+          { id: 'settings', label: labels.settings, icon: Clock },
+        ];
+
+  const toggleOpenStatus = async () => {
+    const nextOpen = !isOpen;
+    try {
+      await updateProviderBusinessSettings(provider.id, {
+        fulfillment: provider.fulfillment ?? {},
+        opening_time: provider.opening_time || '09:00',
+        closing_time: provider.closing_time || '20:00',
+        is_open: nextOpen,
+      });
+      setProvider({ ...provider, is_open: nextOpen });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not update business status.');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -171,32 +343,41 @@ export default function ProviderPage() {
                   <Wrench className="h-5 w-5" />
                 </div>
                 <div>
-                  <h1 className="font-bold text-lg leading-none tracking-tight">Provider Dashboard</h1>
+                  <h1 className="font-bold text-lg leading-none tracking-tight">{labels.dashboard}</h1>
                   <p className="text-[10px] text-muted-foreground mt-0.5 editorial-tracking">Kehi Pro</p>
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <span className="hidden text-sm font-medium sm:inline">{provider.business_name || provider.name}</span>
-              <button
-                onClick={handleCheckInToggle}
-                className={cn(
-                  'h-9 px-4 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5',
-                  provider.is_checked_in ? 'bg-foreground text-background' : 'border border-border hover:bg-secondary',
-                )}
-              >
-                <Power className="h-3.5 w-3.5" />
-                {provider.is_checked_in ? 'Checked In' : 'Check In'}
-              </button>
-              <button onClick={() => void signOut()} className="flex h-9 items-center gap-2 border border-border px-3 text-sm font-medium transition-colors hover:bg-secondary"><LogOut className="h-3.5 w-3.5" /><span className="hidden sm:inline">Log out</span></button>
+              {isServiceProvider ? (
+                <button
+                  onClick={handleCheckInToggle}
+                  className={cn(
+                    'h-9 px-4 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5',
+                    provider.is_checked_in ? 'bg-foreground text-background' : 'border border-border hover:bg-secondary',
+                  )}
+                >
+                  <Power className="h-3.5 w-3.5" />
+                  {provider.is_checked_in ? 'Checked In' : 'Check In'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => void toggleOpenStatus()}
+                  className={cn('h-9 px-4 rounded-lg text-sm font-medium transition-colors', isOpen ? 'bg-emerald-700 text-white' : 'bg-red-700 text-white')}
+                >
+                  {isOpen ? `🟢 ${labels.currentlyOpen}` : `🔴 ${labels.currentlyClosed}`}
+                </button>
+              )}
+              <LanguageSwitcher language={language} onChange={setLanguage} />
+              <button onClick={() => void signOut()} className="flex h-9 items-center gap-2 border border-border px-3 text-sm font-medium transition-colors hover:bg-secondary"><LogOut className="h-3.5 w-3.5" /><span className="hidden sm:inline">{labels.logOut}</span></button>
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-border rounded-xl overflow-hidden border border-border mb-6">
+        {isServiceProvider && <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-border rounded-xl overflow-hidden border border-border mb-6">
           {[
             { icon: Star, label: 'Rating', value: provider.rating.toFixed(1), sub: `${provider.total_reviews} reviews` },
             { icon: CheckCircle2, label: 'Jobs Done', value: String(provider.total_jobs), sub: 'all time' },
@@ -215,17 +396,11 @@ export default function ProviderPage() {
               </div>
             );
           })}
-        </div>
+        </div>}
 
         {/* Tabs */}
         <div className="flex items-center gap-1 mb-6 border-b border-border">
-          {[
-            { id: 'overview', label: 'Bookings', icon: Calendar },
-            { id: 'services', label: 'My Services', icon: Wrench },
-            { id: 'instant', label: 'Instant Work', icon: Zap, badge: instantRequests.length },
-            { id: 'enquiries', label: 'Enquiries', icon: MessageSquareText, badge: providerEnquiries.length },
-            { id: 'availability', label: 'Availability', icon: Clock },
-          ].map((tab) => {
+          {dashboardTabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
@@ -249,7 +424,7 @@ export default function ProviderPage() {
         </div>
 
         {/* Bookings */}
-        {activeTab === 'overview' && (
+        {activeTab === 'overview' && isServiceProvider && (
           <div className="space-y-3">
             <h3 className="font-semibold text-lg mb-2">Incoming Bookings</h3>
             {bookings.length === 0 ? (
@@ -289,6 +464,7 @@ export default function ProviderPage() {
                           {booking.customer_address && (
                             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{booking.customer_address}</p>
                           )}
+
                         </div>
                         <div className="text-right">
                           <p className="font-bold">{formatPrice(booking.total_price)}</p>
@@ -319,6 +495,62 @@ export default function ProviderPage() {
               </AnimatePresence>
             )}
           </div>
+        )}
+
+        {activeTab === 'overview' && isRetailStore && (
+          <div className="space-y-4">
+            <h3 className="font-semibold text-lg">{labels.requests}</h3>
+            <EmptyManagementState icon={Calendar} message={labels.noOrders} />
+            <ProviderBusinessSettings
+              provider={provider}
+              language={language}
+              onSave={async (settings) => {
+                await updateProviderBusinessSettings(provider.id, settings);
+                setProvider({ ...provider, ...settings });
+              }}
+            />
+          </div>
+        )}
+
+        {activeTab === 'overview' && isExperienceProvider && (
+          <div className="space-y-4">
+            <h3 className="font-semibold text-lg">{labels.appointments}</h3>
+            <EmptyManagementState icon={Calendar} message={labels.noAppointments} />
+            <ProviderBusinessSettings
+              provider={provider}
+              language={language}
+              onSave={async (settings) => {
+                await updateProviderBusinessSettings(provider.id, settings);
+                setProvider({ ...provider, ...settings });
+              }}
+            />
+          </div>
+        )}
+
+        {activeTab === 'catalog' && isRetailStore && (
+          <section className="max-w-3xl space-y-3">
+            <div>
+              <h3 className="font-semibold text-lg">{labels.catalog}</h3>
+              <p className="text-sm text-muted-foreground">{labels.catalogNote}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(provider.fulfillment?.categories || []).map((category) => (
+                <span key={category} className="rounded-md border border-border px-3 py-2 text-sm">{category}</span>
+              ))}
+            </div>
+            {(provider.fulfillment?.categories || []).length === 0 && <EmptyManagementState icon={Wrench} message={labels.catalogNote} />}
+          </section>
+        )}
+
+        {activeTab === 'settings' && !isServiceProvider && (
+          <ProviderBusinessSettings
+            provider={provider}
+            language={language}
+            onSave={async (settings) => {
+              await updateProviderBusinessSettings(provider.id, settings);
+              setProvider({ ...provider, ...settings });
+            }}
+          />
         )}
 
         {/* Instant Work */}
@@ -461,6 +693,7 @@ function ProviderOnboarding({
   categories,
   services,
   initialError,
+  language,
   onCreate,
 }: {
   userName: string;
@@ -468,27 +701,50 @@ function ProviderOnboarding({
   categories: ServiceCategory[];
   services: Service[];
   initialError: string;
+  language: 'en' | 'ne';
   onCreate: (profile: ProviderProfileInput, serviceIds: string[]) => Promise<void>;
 }) {
+  const labels = COPY[language];
+  const [providerType, setProviderType] = useState<ProviderBusinessType>('service_provider');
   const [businessName, setBusinessName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [retailWalkInAllowed, setRetailWalkInAllowed] = useState(true);
+  const [experienceWalkInAllowed, setExperienceWalkInAllowed] = useState(true);
+  const [localHomeDelivery, setLocalHomeDelivery] = useState(false);
+  const [deliveryRadiusKm, setDeliveryRadiusKm] = useState('');
+  const [estimatedDeliveryTime, setEstimatedDeliveryTime] = useState('');
+  const [storePickup, setStorePickup] = useState(false);
+  const [appointmentRequired, setAppointmentRequired] = useState(true);
+  const [openingTime, setOpeningTime] = useState('09:00');
+  const [closingTime, setClosingTime] = useState('20:00');
+  const [isOpen, setIsOpen] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(initialError);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const isHomeService = providerType === 'service_provider';
     if (selectedCategoryIds.length === 0) {
       setError('Choose at least one category you provide.');
       return;
     }
-    const serviceIds = services
-      .filter((service) => selectedCategoryIds.includes(service.category_id))
-      .map((service) => service.id);
-    if (serviceIds.length === 0) {
+    const serviceIds = isHomeService
+      ? services.filter((service) => selectedCategoryIds.includes(service.category_id)).map((service) => service.id)
+      : [];
+    if (isHomeService && serviceIds.length === 0) {
       setError('No services are available for the selected categories.');
+      return;
+    }
+    if (providerType === 'retail_store' && localHomeDelivery
+      && (!Number.isFinite(Number(deliveryRadiusKm)) || Number(deliveryRadiusKm) <= 0)) {
+      setError('Enter a delivery radius greater than 0 km.');
+      return;
+    }
+    if (closingTime <= openingTime) {
+      setError('Closing time must be later than opening time.');
       return;
     }
     setSaving(true);
@@ -500,6 +756,30 @@ function ProviderOnboarding({
         phone: phone.trim(),
         address: address.trim(),
         city: city.trim(),
+        opening_time: openingTime,
+        closing_time: closingTime,
+        is_open: isOpen,
+        businessType: providerType,
+        ...(isHomeService ? {
+          fulfillmentType: 'doorstep_dispatch' as const,
+          isInstantDispatchEligible: true,
+        } : {}),
+        fulfillment: {
+          categories: isHomeService
+            ? categories.filter((category) => selectedCategoryIds.includes(category.id)).map((category) => category.name)
+            : selectedCategoryIds,
+          ...(providerType === 'retail_store'
+            ? {
+                walkInAllowed: retailWalkInAllowed,
+                localHomeDelivery,
+                deliveryRadiusKm: localHomeDelivery ? Number(deliveryRadiusKm) : null,
+                estimatedDeliveryTime: localHomeDelivery ? estimatedDeliveryTime.trim() : '',
+                storePickup,
+              }
+            : providerType === 'activity_dining' || providerType === 'experience_provider'
+              ? { walkInAllowed: experienceWalkInAllowed, appointmentRequired }
+              : {}),
+        },
       }, serviceIds);
     } catch (saveError) {
       const code = typeof saveError === 'object' && saveError && 'code' in saveError ? String(saveError.code) : '';
@@ -514,36 +794,323 @@ function ProviderOnboarding({
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
       <div className="mb-7 max-w-2xl">
-        <p className="text-xs font-semibold uppercase text-muted-foreground">Provider onboarding</p>
-        <h1 className="mt-2 text-3xl font-bold">Set up your service profile</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Signed in as {userEmail}. Add your business details and choose the work you take on.</p>
+        <p className="text-xs font-semibold uppercase text-muted-foreground">{labels.onboarding}</p>
+        <h1 className="mt-2 text-3xl font-bold">{labels.setupTitle}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{userEmail}. {labels.setupDescription}</p>
       </div>
-      <form onSubmit={submit} className="grid gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        <section className="space-y-4">
-          <label className="block text-sm font-medium">Business name
-            <input required value={businessName} onChange={(event) => setBusinessName(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
-          </label>
-          <label className="block text-sm font-medium">Contact phone
-            <input required type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
-          </label>
-          <label className="block text-sm font-medium">Work address
-            <input required value={address} onChange={(event) => setAddress(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
-          </label>
-          <label className="block text-sm font-medium">City / service area
-            <input required value={city} onChange={(event) => setCity(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
-          </label>
-        </section>
-        <section>
-          <h2 className="mb-1 text-lg font-semibold">Services you provide</h2>
-          <p className="mb-4 text-sm text-muted-foreground">Select every service you are qualified to take on.</p>
-          <ServiceCategoryChoices categories={categories} services={services} selectedIds={selectedCategoryIds} onChange={setSelectedCategoryIds} />
-          {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
-          <button type="submit" disabled={saving || services.length === 0} className="mt-5 h-11 w-full rounded-lg bg-foreground text-sm font-medium text-background disabled:opacity-50">
-            {saving ? 'Saving profile…' : 'Create Provider Profile'}
-          </button>
-        </section>
+      <form onSubmit={submit} className="space-y-8">
+        <fieldset>
+          <legend className="mb-3 text-sm font-semibold">{labels.providerType}</legend>
+          <div className="grid gap-3 md:grid-cols-3">
+            {PROVIDER_TYPES.map((type) => (
+              <label
+                key={type.id}
+                className={cn('flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm font-medium transition-colors', providerType === type.id ? 'border-foreground bg-secondary/60' : 'border-border hover:bg-secondary/30')}
+              >
+                <input
+                  type="radio"
+                  name="providerType"
+                  value={type.id}
+                  checked={providerType === type.id}
+                  onChange={() => {
+                    setProviderType(type.id);
+                    setSelectedCategoryIds([]);
+                    setError('');
+                  }}
+                />
+                {type.label[language]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold">{labels.businessDetails}</h2>
+            <label className="block text-sm font-medium">{labels.businessName}
+              <input required value={businessName} onChange={(event) => setBusinessName(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+            </label>
+            <label className="block text-sm font-medium">{labels.phone}
+              <input required type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+            </label>
+            <label className="block text-sm font-medium">{labels.address}
+              <input required value={address} onChange={(event) => setAddress(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+            </label>
+            <label className="block text-sm font-medium">{labels.city}
+              <input required value={city} onChange={(event) => setCity(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3" />
+            </label>
+          </section>
+          <section>
+            <h2 className="mb-1 text-lg font-semibold">{labels.services}</h2>
+            <p className="mb-4 text-sm text-muted-foreground">
+              {providerType === 'service_provider' ? labels.repairHelp : labels.categoryHelp}
+            </p>
+            {providerType === 'service_provider' ? (
+              <ServiceCategoryChoices categories={categories} services={services} selectedIds={selectedCategoryIds} onChange={setSelectedCategoryIds} />
+            ) : (
+              <OnboardingCategoryChoices
+                options={providerType === 'retail_store' ? RETAIL_CATEGORIES : EXPERIENCE_CATEGORIES}
+                selectedIds={selectedCategoryIds}
+                onChange={setSelectedCategoryIds}
+              />
+            )}
+            {providerType === 'retail_store' && (
+              <fieldset className="mt-5 space-y-3">
+                <legend className="mb-2 text-sm font-semibold">{labels.storeFulfillment}</legend>
+                <FulfillmentCheckbox label={labels.walkIn} note={labels.walkInHelp} checked={retailWalkInAllowed} onChange={setRetailWalkInAllowed} />
+                <div>
+                  <FulfillmentCheckbox label={labels.localDelivery} note={labels.localDeliveryHelp} checked={localHomeDelivery} onChange={setLocalHomeDelivery} />
+                  {localHomeDelivery && (
+                    <div className="ml-7 mt-2 grid max-w-xl gap-3 sm:grid-cols-2">
+                      <label className="block text-sm">
+                        {labels.deliveryRadius}
+                        <input
+                          required
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={deliveryRadiusKm}
+                          onChange={(event) => setDeliveryRadiusKm(event.target.value)}
+                          placeholder="3"
+                          className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        {labels.deliveryTime}
+                        <input value={estimatedDeliveryTime} onChange={(event) => setEstimatedDeliveryTime(event.target.value)} placeholder="30-45 mins" className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3" />
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <FulfillmentCheckbox label={labels.storePickup} note={labels.storePickupHelp} checked={storePickup} onChange={setStorePickup} />
+              </fieldset>
+            )}
+            {(providerType === 'activity_dining' || providerType === 'experience_provider') && (
+              <fieldset className="mt-5 space-y-3">
+                <legend className="mb-2 text-sm font-semibold">{labels.visitOptions}</legend>
+                <FulfillmentCheckbox label={labels.walkIn} note={labels.walkInHelp} checked={experienceWalkInAllowed} onChange={setExperienceWalkInAllowed} />
+                <FulfillmentCheckbox label={labels.appointment} note={labels.appointmentHelp} checked={appointmentRequired} onChange={setAppointmentRequired} />
+              </fieldset>
+            )}
+            <fieldset className="mt-5 space-y-3">
+              <legend className="mb-2 text-sm font-semibold">{labels.liveStatus}</legend>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium">{labels.openingTime}
+                  <input required type="time" value={openingTime} onChange={(event) => setOpeningTime(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3" />
+                </label>
+                <label className="block text-sm font-medium">{labels.closingTime}
+                  <input required type="time" value={closingTime} onChange={(event) => setClosingTime(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3" />
+                </label>
+              </div>
+              <button
+                type="button"
+                aria-pressed={isOpen}
+                onClick={() => setIsOpen((open) => !open)}
+                className={cn('rounded-lg px-3 py-2 text-left text-sm font-medium text-white', isOpen ? 'bg-emerald-700' : 'bg-red-700')}
+              >
+                {isOpen ? `🟢 ${labels.liveStatus}: ${labels.currentlyOpen}` : `🔴 ${labels.liveStatus}: ${labels.currentlyClosed}`}
+              </button>
+            </fieldset>
+            {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+            <button type="submit" disabled={saving || (providerType === 'service_provider' && services.length === 0)} className="mt-5 h-11 w-full rounded-lg bg-foreground text-sm font-medium text-background disabled:opacity-50">
+              {saving ? 'Saving profile…' : 'Create Provider Profile'}
+            </button>
+          </section>
+        </div>
       </form>
     </main>
+  );
+}
+
+function OnboardingCategoryChoices({
+  options,
+  selectedIds,
+  onChange,
+}: {
+  options: { name: string; description: string; tag: string }[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const toggle = (category: string) => {
+    onChange(selectedIds.includes(category)
+      ? selectedIds.filter((id) => id !== category)
+      : [...selectedIds, category]);
+  };
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {options.map((option) => {
+        const selected = selectedIds.includes(option.name);
+        return (
+          <label key={option.name} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors', selected ? 'border-foreground bg-secondary/60' : 'border-border hover:bg-secondary/30')}>
+            <input className="mt-1" type="checkbox" checked={selected} onChange={() => toggle(option.name)} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-medium">{option.name}</span>
+                {selected && <Check className="h-4 w-4 shrink-0" aria-label="Selected" />}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+              <p className="mt-2 text-[10px] font-medium text-emerald-700">{option.tag}</p>
+            </div>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function FulfillmentCheckbox({
+  label,
+  note,
+  checked,
+  onChange,
+}: {
+  label: string;
+  note?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 text-sm">
+      <input className="mt-1" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>
+        <span className="block font-medium">{label}</span>
+        {note && <span className="mt-0.5 block text-xs text-muted-foreground">{note}</span>}
+      </span>
+    </label>
+  );
+}
+
+function LanguageSwitcher({
+  language,
+  onChange,
+}: {
+  language: 'en' | 'ne';
+  onChange: (language: 'en' | 'ne') => void;
+}) {
+  return (
+    <div role="group" aria-label="Language" className="inline-flex h-9 items-center rounded-md border border-border p-0.5 text-xs">
+      <button type="button" onClick={() => onChange('en')} aria-pressed={language === 'en'} className={cn('h-full rounded px-2.5', language === 'en' ? 'bg-foreground text-background' : 'text-muted-foreground')}>
+        English
+      </button>
+      <button type="button" onClick={() => onChange('ne')} aria-pressed={language === 'ne'} className={cn('h-full rounded px-2.5', language === 'ne' ? 'bg-foreground text-background' : 'text-muted-foreground')}>
+        नेपाली
+      </button>
+    </div>
+  );
+}
+
+function EmptyManagementState({ icon: Icon, message }: { icon: React.ComponentType<{ className?: string }>; message: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-border py-10 text-center text-muted-foreground">
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center opacity-40"><Icon className="h-8 w-8" /></div>
+      <p className="text-sm">{message}</p>
+    </div>
+  );
+}
+
+function ProviderBusinessSettings({
+  provider,
+  language,
+  onSave,
+}: {
+  provider: Provider;
+  language: 'en' | 'ne';
+  onSave: (settings: Pick<Provider, 'fulfillment' | 'opening_time' | 'closing_time' | 'is_open'>) => Promise<void>;
+}) {
+  const labels = COPY[language];
+  const [fulfillment, setFulfillment] = useState<NonNullable<Provider['fulfillment']>>(provider.fulfillment ?? {});
+  const [openingTime, setOpeningTime] = useState(provider.opening_time || '09:00');
+  const [closingTime, setClosingTime] = useState(provider.closing_time || '20:00');
+  const [isOpen, setIsOpen] = useState(provider.is_open ?? true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setFulfillment(provider.fulfillment ?? {});
+    setOpeningTime(provider.opening_time || '09:00');
+    setClosingTime(provider.closing_time || '20:00');
+    setIsOpen(provider.is_open ?? true);
+  }, [provider]);
+
+  const save = async () => {
+    if (closingTime <= openingTime) {
+      setError('Closing time must be later than opening time.');
+      return;
+    }
+    if (fulfillment.localHomeDelivery
+      && (!Number.isFinite(fulfillment.deliveryRadiusKm) || (fulfillment.deliveryRadiusKm ?? 0) <= 0)) {
+      setError('Enter a delivery radius greater than 0 km.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave({
+        fulfillment,
+        opening_time: openingTime,
+        closing_time: closingTime,
+        is_open: isOpen,
+      });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save business settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isRetailStore = provider.businessType === 'retail_store';
+  const setOption = (key: keyof NonNullable<Provider['fulfillment']>, value: boolean | number | string | null) => {
+    setFulfillment((current) => ({ ...current, [key]: value }));
+  };
+
+  return (
+    <section className="max-w-3xl rounded-xl border border-border p-4 sm:p-6">
+      <h3 className="mb-4 font-semibold text-lg">{labels.settings}</h3>
+      <div className="space-y-4">
+        {isRetailStore ? (
+          <>
+            <FulfillmentCheckbox label={labels.walkIn} note={labels.walkInHelp} checked={fulfillment.walkInAllowed ?? true} onChange={(value) => setOption('walkInAllowed', value)} />
+            <FulfillmentCheckbox label={labels.localDelivery} note={labels.localDeliveryHelp} checked={fulfillment.localHomeDelivery ?? false} onChange={(value) => setOption('localHomeDelivery', value)} />
+            {fulfillment.localHomeDelivery && (
+              <div className="ml-7 grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm">{labels.deliveryRadius}
+                  <input type="number" min="0.1" step="0.1" value={fulfillment.deliveryRadiusKm ?? ''} onChange={(event) => setOption('deliveryRadiusKm', event.target.value ? Number(event.target.value) : null)} className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3" />
+                </label>
+                <label className="block text-sm">{labels.deliveryTime}
+                  <input value={fulfillment.estimatedDeliveryTime || ''} onChange={(event) => setOption('estimatedDeliveryTime', event.target.value)} placeholder="30-45 mins" className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3" />
+                </label>
+              </div>
+            )}
+            <FulfillmentCheckbox label={labels.storePickup} note={labels.storePickupHelp} checked={fulfillment.storePickup ?? false} onChange={(value) => setOption('storePickup', value)} />
+          </>
+        ) : (
+          <>
+            <FulfillmentCheckbox label={labels.walkIn} note={labels.walkInHelp} checked={fulfillment.walkInAllowed ?? true} onChange={(value) => setOption('walkInAllowed', value)} />
+            <FulfillmentCheckbox label={labels.appointment} note={labels.appointmentHelp} checked={fulfillment.appointmentRequired ?? true} onChange={(value) => setOption('appointmentRequired', value)} />
+          </>
+        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm font-medium">{labels.openingTime}
+            <input type="time" value={openingTime} onChange={(event) => setOpeningTime(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+          <label className="block text-sm font-medium">{labels.closingTime}
+            <input type="time" value={closingTime} onChange={(event) => setClosingTime(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-border bg-background px-3" />
+          </label>
+        </div>
+        <button
+          type="button"
+          aria-pressed={isOpen}
+          onClick={() => setIsOpen((open) => !open)}
+          className={cn('rounded-lg px-3 py-2 text-sm font-medium text-white', isOpen ? 'bg-emerald-700' : 'bg-red-700')}
+        >
+          {isOpen ? `🟢 ${labels.liveStatus}: ${labels.currentlyOpen}` : `🔴 ${labels.liveStatus}: ${labels.currentlyClosed}`}
+        </button>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        <button type="button" onClick={() => void save()} disabled={saving} className="block h-10 rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-50">
+          {saving ? labels.saving : labels.save}
+        </button>
+      </div>
+    </section>
   );
 }
 

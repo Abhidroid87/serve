@@ -10,7 +10,7 @@ import { InstantWorkModal } from '@/components/instant-work-modal';
 import { LocationBar, type UserLocation } from '@/components/location-bar';
 import { useAuth } from '@/lib/auth-context';
 import type { Provider, Service, ServiceCategory } from '@/lib/types';
-import { createProviderEnquiry, getMarketplaceCatalog, getProvidersForService } from '@/lib/data';
+import { createProviderEnquiry, getMarketplaceCatalog, getProvidersForService, watchProviderProfile } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
 interface ProviderDirectoryEntry {
@@ -42,6 +42,7 @@ export default function ProvidersPage() {
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [entries, setEntries] = useState<ProviderDirectoryEntry[]>([]);
+  const providerIds = useMemo(() => entries.map(({ provider }) => provider.id).join(','), [entries]);
   const [categoryId, setCategoryId] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [bookingService, setBookingService] = useState<Service | null>(null);
@@ -106,6 +107,26 @@ export default function ProvidersPage() {
     return () => { active = false; };
   }, [categoryId, selectedServiceId, services, location]);
 
+  useEffect(() => {
+    if (!providerIds) return;
+    const unsubscribe = providerIds.split(',').map((providerId) => watchProviderProfile(providerId, (updatedProvider) => {
+      if (!updatedProvider) return;
+      setEntries((current) => current.map((entry) => entry.provider.id === updatedProvider.id
+        ? {
+            ...entry,
+            provider: {
+              ...entry.provider,
+              is_open: updatedProvider.is_open,
+              opening_time: updatedProvider.opening_time,
+              closing_time: updatedProvider.closing_time,
+              is_checked_in: updatedProvider.is_checked_in,
+            },
+          }
+        : entry));
+    }));
+    return () => unsubscribe.forEach((stop) => stop());
+  }, [providerIds]);
+
   const selectedCategory = categories.find((category) => category.id === categoryId);
   const categoryServices = services.filter((service) => service.category_id === categoryId);
   const selectedService = services.find((service) => service.id === selectedServiceId);
@@ -121,7 +142,11 @@ export default function ProvidersPage() {
     return haystack.includes(search.toLowerCase())
       && (!cityFilter || cityText.includes(cityFilter.trim().toLowerCase()))
       && provider.rating >= Number(minimumRating)
-      && (!openNow || provider.is_checked_in)
+      && (!openNow || (
+        provider.businessType && provider.businessType !== 'service_provider'
+          ? provider.is_open === true
+          : provider.is_checked_in
+      ))
       && (!verifiedOnly || provider.is_verified)
       && (!selectedServiceId || matchedServices.some((service) => service.id === selectedServiceId));
   }), [entries, search, cityFilter, minimumRating, openNow, verifiedOnly, selectedServiceId]);
@@ -262,8 +287,18 @@ export default function ProvidersPage() {
                         <h3 className="font-semibold">{provider.business_name || provider.name}</h3>
                         {provider.is_verified && <span className="flex items-center gap-1 text-[11px] text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" /> Verified</span>}
                         {provider.is_checked_in && provider.is_verified && <span className="h-2 w-2 rounded-full bg-emerald-500" title="Available now" />}
+                        {provider.businessType && provider.businessType !== 'service_provider' && (
+                          <span className={provider.is_open ? 'text-xs font-medium text-emerald-700' : 'text-xs font-medium text-red-700'}>
+                            {provider.is_open ? '🟢 Currently Open' : '🔴 Currently Closed'}
+                          </span>
+                        )}
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{provider.bio || 'Local service professional'}</p>
+                      {provider.businessType && provider.businessType !== 'service_provider' && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {provider.opening_time || '09:00'} – {provider.closing_time || '20:00'}
+                        </p>
+                      )}
                       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />{provider.rating.toFixed(1)} ({provider.total_reviews} reviews)</span>
                         {(provider.locality || provider.city) && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{[provider.locality, provider.city].filter(Boolean).join(', ')}</span>}

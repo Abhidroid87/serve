@@ -106,12 +106,18 @@ Complete → customer releases payment
    ```
    { name: "John Smith", business_name: "Smith Plumbing", latitude: 12.9716, longitude: 77.5946,
      address: "...", locality: "Downtown", city: "Bangalore", service_radius_km: 5,
-     is_verified: true, is_checked_in: false, rating: 4.5, total_reviews: 10, total_jobs: 25 }
+     is_verified: true, is_checked_in: false, rating: 4.5, total_reviews: 10, total_jobs: 25,
+     businessType: "service_provider", fulfillmentType: "doorstep_dispatch",
+     isInstantDispatchEligible: true, fulfillment: { categories: ["Plumbing"] },
+     opening_time: "09:00", closing_time: "20:00", is_open: true }
    ```
 2. Link them to services via `provider_services`:
    ```
    { provider_id: "<provider-doc-id>", service_id: "<service-doc-id>", custom_price: null }
    ```
+   Retail and experience profiles store their selected categories and fulfillment options in
+   `fulfillment`; they do not create repair-service links in `provider_services`. Merchants can
+   update fulfillment choices, business hours, and `is_open` from their provider dashboard.
 3. Add their weekly schedule to `provider_availability`:
    ```
    { provider_id: "...", day_of_week: 1, start_time: "09:00", end_time: "17:00", max_simultaneous_jobs: 1 }

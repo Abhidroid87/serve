@@ -7,7 +7,7 @@ import { auth, db, isFirebaseConfigured } from './firebase';
 import { DEMO_CATEGORIES, DEMO_PROVIDER_AVAILABILITY, DEMO_PROVIDER_SERVICES, DEMO_PROVIDERS, DEMO_SERVICES } from './demo-data';
 import type {
   ServiceCategory, Service, Provider, ProviderAvailability,
-  Booking, PricingBreakdown, TimeSlot, InstantRequest, Transaction, Review,
+  Booking, PricingBreakdown, TimeSlot, InstantRequest, Transaction, Review, ProviderBusinessType, ProviderFulfillment,
 } from './types';
 
 // ============ COLLECTIONS ============
@@ -211,12 +211,26 @@ export async function getProviderById(id: string): Promise<Provider | null> {
   return { id: d.id, ...d.data() } as Provider;
 }
 
+export function watchProviderProfile(providerId: string, onChange: (provider: Provider | null) => void) {
+  if (!isFirebaseConfigured()) return () => {};
+  return onSnapshot(doc(db, PROVIDERS, providerId), (snapshot) => {
+    onChange(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } as Provider : null);
+  });
+}
+
 export interface ProviderProfileInput {
   name: string;
   business_name: string;
   phone: string;
   address: string;
   city: string;
+  businessType?: ProviderBusinessType;
+  fulfillmentType?: 'doorstep_dispatch';
+  isInstantDispatchEligible?: boolean;
+  fulfillment?: ProviderFulfillment;
+  opening_time?: string;
+  closing_time?: string;
+  is_open?: boolean;
 }
 
 export async function createProviderProfile(
@@ -225,9 +239,21 @@ export async function createProviderProfile(
   profile: ProviderProfileInput,
   serviceIds: string[],
 ): Promise<Provider> {
-  if (serviceIds.length === 0) throw new Error('Choose at least one service to offer.');
+  const businessType = profile.businessType ?? 'service_provider';
+  if (businessType === 'service_provider' && serviceIds.length === 0) {
+    throw new Error('Choose at least one service to offer.');
+  }
   const provider: Omit<Provider, 'id'> = {
     ...profile,
+    businessType,
+    fulfillment: profile.fulfillment ?? {},
+    ...(businessType === 'service_provider' ? {
+      fulfillmentType: profile.fulfillmentType ?? 'doorstep_dispatch',
+      isInstantDispatchEligible: profile.isInstantDispatchEligible ?? true,
+    } : {}),
+    opening_time: profile.opening_time ?? '09:00',
+    closing_time: profile.closing_time ?? '20:00',
+    is_open: profile.is_open ?? true,
     latitude: null,
     longitude: null,
     email,
@@ -715,6 +741,13 @@ export async function updateProviderCheckIn(
   checkedIn: boolean,
 ): Promise<void> {
   await updateDoc(doc(db, PROVIDERS, providerId), { is_checked_in: checkedIn });
+}
+
+export async function updateProviderBusinessSettings(
+  providerId: string,
+  settings: Pick<Provider, 'fulfillment' | 'opening_time' | 'closing_time' | 'is_open'>,
+): Promise<void> {
+  await updateDoc(doc(db, PROVIDERS, providerId), settings);
 }
 
 export async function saveProviderAvailability(

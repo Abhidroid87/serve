@@ -34,7 +34,8 @@ service cloud.firestore {
         && request.resource.data.auth_uid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name', 'business_name', 'phone', 'address', 'city', 'locality', 'bio',
-          'service_radius_km', 'latitude', 'longitude', 'is_checked_in'
+          'service_radius_km', 'latitude', 'longitude', 'is_checked_in', 'fulfillment',
+          'opening_time', 'closing_time', 'is_open'
         ]));
       allow delete: if isAdmin();
     }
