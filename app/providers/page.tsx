@@ -10,7 +10,7 @@ import { InstantWorkModal } from '@/components/instant-work-modal';
 import { LocationBar, type UserLocation } from '@/components/location-bar';
 import { useAuth } from '@/lib/auth-context';
 import type { Provider, Service, ServiceCategory } from '@/lib/types';
-import { createProviderEnquiry, getMarketplaceCatalog, getProvidersForService, watchProviderProfile } from '@/lib/data';
+import { createProviderEnquiry, getAllProviders, getMarketplaceCatalog, getProvidersForService, watchProviderProfile } from '@/lib/data';
 import { cn } from '@/lib/utils';
 
 interface ProviderDirectoryEntry {
@@ -43,6 +43,8 @@ export default function ProvidersPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [entries, setEntries] = useState<ProviderDirectoryEntry[]>([]);
   const providerIds = useMemo(() => entries.map(({ provider }) => provider.id).join(','), [entries]);
+  const [businessProviders, setBusinessProviders] = useState<Provider[]>([]);
+  const businessProviderIds = useMemo(() => businessProviders.map((provider) => provider.id).join(','), [businessProviders]);
   const [categoryId, setCategoryId] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [bookingService, setBookingService] = useState<Service | null>(null);
@@ -68,7 +70,9 @@ export default function ProvidersPage() {
     let active = true;
     const loadDirectory = async () => {
       try {
-        const catalog = await getMarketplaceCatalog();
+        const [catalog, providers] = await Promise.all([getMarketplaceCatalog(), getAllProviders()]);
+        if (!active) return;
+        setBusinessProviders(providers.filter((provider) => provider.businessType && provider.businessType !== 'service_provider'));
         const requestedId = new URLSearchParams(window.location.search).get('service') || '';
         const requestedService = catalog.services.find((service) => service.id === requestedId);
         const requestedCategory = requestedService?.category_id || catalog.categories.find((category) => category.id === requestedId)?.id || '';
@@ -127,6 +131,23 @@ export default function ProvidersPage() {
     return () => unsubscribe.forEach((stop) => stop());
   }, [providerIds]);
 
+  useEffect(() => {
+    if (!businessProviderIds) return;
+    const unsubscribe = businessProviderIds.split(',').map((providerId) => watchProviderProfile(providerId, (updatedProvider) => {
+      if (!updatedProvider) return;
+      setBusinessProviders((current) => current.map((provider) => provider.id === updatedProvider.id
+        ? {
+            ...provider,
+            is_open: updatedProvider.is_open,
+            opening_time: updatedProvider.opening_time,
+            closing_time: updatedProvider.closing_time,
+            fulfillment: updatedProvider.fulfillment,
+          }
+        : provider));
+    }));
+    return () => unsubscribe.forEach((stop) => stop());
+  }, [businessProviderIds]);
+
   const selectedCategory = categories.find((category) => category.id === categoryId);
   const categoryServices = services.filter((service) => service.category_id === categoryId);
   const selectedService = services.find((service) => service.id === selectedServiceId);
@@ -150,6 +171,14 @@ export default function ProvidersPage() {
       && (!verifiedOnly || provider.is_verified)
       && (!selectedServiceId || matchedServices.some((service) => service.id === selectedServiceId));
   }), [entries, search, cityFilter, minimumRating, openNow, verifiedOnly, selectedServiceId]);
+  const filteredBusinessProviders = useMemo(() => businessProviders.filter((provider) => {
+    const text = [provider.business_name || '', provider.name, provider.city || '', provider.locality || '', ...(provider.fulfillment?.categories || [])].join(' ').toLowerCase();
+    const cityText = `${provider.city || ''} ${provider.locality || ''} ${provider.address || ''}`.toLowerCase();
+    return text.includes(search.toLowerCase())
+      && (!cityFilter || cityText.includes(cityFilter.trim().toLowerCase()))
+      && (!openNow || provider.is_open === true)
+      && (!verifiedOnly || provider.is_verified);
+  }), [businessProviders, search, cityFilter, openNow, verifiedOnly]);
 
   const chooseCategory = (nextCategoryId: string) => {
     setCategoryId(nextCategoryId);
@@ -218,6 +247,49 @@ export default function ProvidersPage() {
             searchPlaceholder="Search providers or service areas..."
           />
         </div>
+
+        {filteredBusinessProviders.length > 0 && (
+          <section className="mb-8">
+            <div className="mb-3">
+              <h2 className="text-xl font-semibold">Local stores & experiences</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Check live opening status, hours, and visit or fulfillment options.</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {filteredBusinessProviders.map((provider) => {
+                const isOpen = provider.is_open === true;
+                const fulfillment = provider.fulfillment;
+                return (
+                  <article key={provider.id} className="rounded-xl border border-border bg-card p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">{provider.business_name || provider.name}</h3>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {provider.businessType === 'retail_store' ? 'Retail store' : 'Dining, salon & activities'}
+                          {(provider.locality || provider.city) && ` · ${[provider.locality, provider.city].filter(Boolean).join(', ')}`}
+                        </p>
+                      </div>
+                      <span className={cn('shrink-0 text-xs font-semibold', isOpen ? 'text-emerald-700' : 'text-red-700')}>
+                        {isOpen ? '🟢 Currently Open' : '🔴 Currently Closed'}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Hours: {provider.opening_time || '09:00'} – {provider.closing_time || '20:00'}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {(fulfillment?.categories || []).map((category) => (
+                        <span key={category} className="rounded border border-border px-2 py-1 text-[10px]">{category}</span>
+                      ))}
+                      {fulfillment?.walkInAllowed && <span className="rounded border border-border px-2 py-1 text-[10px]">Walk-in</span>}
+                      {fulfillment?.localHomeDelivery && <span className="rounded border border-border px-2 py-1 text-[10px]">Delivery · {fulfillment.deliveryRadiusKm ?? '?'} km</span>}
+                      {fulfillment?.storePickup && <span className="rounded border border-border px-2 py-1 text-[10px]">Store pickup</span>}
+                      {fulfillment?.appointmentRequired && <span className="rounded border border-border px-2 py-1 text-[10px]">Appointment required</span>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <div className="grid gap-7 py-7 lg:grid-cols-[240px_minmax(0,1fr)]">
           <aside className="h-fit space-y-6 border border-border p-4 lg:sticky lg:top-5">
