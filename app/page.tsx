@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Zap, Wrench, Star, ArrowRight, CheckCircle2, Lock, MapPin, ChevronLeft, ChevronRight, ShoppingBag, Utensils, Sparkles, BadgeCheck, UserRound, Store, Scissors } from 'lucide-react';
+import { Zap, Wrench, Star, ArrowRight, CheckCircle2, Lock, MapPin, ChevronLeft, ChevronRight, ShoppingBag, Utensils, Sparkles, BadgeCheck, UserRound, Store, Scissors, CircleHelp } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { LocationBar, type UserLocation } from '@/components/location-bar';
@@ -392,13 +392,18 @@ export default function Home() {
                 List your shop <ArrowRight className="h-4 w-4" />
               </button>
               {user && <span className="hidden text-xs text-muted-foreground sm:block">{user.email}</span>}
-              <button
-                onClick={() => user ? setActiveTab('bookings') : setShowAuthModal(true)}
-                aria-label={user ? 'Open my bookings' : 'Sign in'}
-                className="grid h-10 w-10 place-items-center rounded-full border border-border transition-colors hover:bg-secondary"
-              >
-                <UserRound className="h-4 w-4" />
-              </button>
+              <Link href="/support/" aria-label="Contact support" title="Contact support" className="grid h-10 w-10 place-items-center rounded-full border border-border transition-colors hover:bg-secondary">
+                <CircleHelp className="h-4 w-4" />
+              </Link>
+              {user ? (
+                <Link href="/account/" aria-label="Open my account" title="My account" className="grid h-10 w-10 place-items-center rounded-full border border-border transition-colors hover:bg-secondary">
+                  <UserRound className="h-4 w-4" />
+                </Link>
+              ) : (
+                <button onClick={() => setShowAuthModal(true)} aria-label="Sign in" className="grid h-10 w-10 place-items-center rounded-full border border-border transition-colors hover:bg-secondary">
+                  <UserRound className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
           <LocationBar

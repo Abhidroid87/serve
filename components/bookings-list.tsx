@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Calendar, Clock, CheckCircle2, Loader2, Star, Lock, Unlock, Receipt, AlertCircle,
 } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 import type { Booking } from '@/lib/types';
 import { verifyOTPAndComplete, formatPrice, formatTime } from '@/lib/data';
 import { cn } from '@/lib/utils';
@@ -22,26 +23,37 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 };
 
 export function BookingsList({ refreshTrigger }: BookingsListProps) {
+  const { user, setShowAuthModal } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
   const [verifying, setVerifying] = useState<Record<string, boolean>>({});
   const [otpResults, setOtpResults] = useState<Record<string, { success: boolean; message: string }>>({});
 
-  useEffect(() => { loadBookings(); }, [refreshTrigger]);
-
-  const loadBookings = async () => {
+  const loadBookings = useCallback(async () => {
     setLoading(true);
+    setError('');
+    if (!user) {
+      setBookings([]);
+      setLoading(false);
+      return;
+    }
     try {
-      const { collection, getDocs, query, orderBy, limit } = await import('firebase/firestore');
+      const { collection, getDocs, query, orderBy, limit, where } = await import('firebase/firestore');
       const { db } = await import('@/lib/firebase');
-      const q = query(collection(db, 'bookings'), orderBy('created_at', 'desc'), limit(20));
+      const q = query(collection(db, 'bookings'), where('customer_uid', '==', user.uid), orderBy('created_at', 'desc'), limit(20));
       const snap = await getDocs(q);
       const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Booking));
       setBookings(items);
-    } catch { setBookings([]); }
-    setLoading(false);
-  };
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load your bookings.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => { void loadBookings(); }, [loadBookings, refreshTrigger]);
 
   const handleVerifyOTP = async (bookingId: string) => {
     const otp = otpInputs[bookingId];
@@ -60,13 +72,16 @@ export function BookingsList({ refreshTrigger }: BookingsListProps) {
     return (
       <div className="text-center py-12 text-muted-foreground">
         <Calendar className="h-10 w-10 mx-auto mb-3 opacity-40" />
-        <p className="text-sm">No bookings yet. Book a service to see it here.</p>
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : user
+          ? <p className="text-sm">No bookings yet. Book a service to see it here.</p>
+          : <><p className="text-sm">Sign in to view your bookings.</p><button onClick={() => setShowAuthModal(true)} className="mt-3 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background">Sign in</button></>}
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
+      {error && <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       {bookings.map((booking, i) => {
         const status = statusConfig[booking.status] || statusConfig.pending;
         const isCompleted = booking.status === 'completed';

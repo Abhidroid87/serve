@@ -175,6 +175,101 @@ export interface Review {
   created_at: string;
 }
 
+import type { Timestamp } from 'firebase/firestore';
+
+export type MarketplaceBusinessType = 'retail' | 'dining' | 'salon_spa' | 'fitness_activity' | 'home_service';
+export type MarketplaceOrderStatus = 'pending' | 'accepted' | 'preparing' | 'ready' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+export type MarketplacePaymentMethod = 'COD' | 'eSewa' | 'Khalti' | 'Escrow';
+
+export interface MarketplaceOrderItem {
+  id: string;
+  name: string;
+  price: number;
+  qty: number;
+  unit?: string;
+}
+
+export interface MarketplaceOrder {
+  id: string;
+  orderId: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress?: string;
+  merchantId: string;
+  merchantName: string;
+  businessType: MarketplaceBusinessType;
+  status: MarketplaceOrderStatus;
+  totalAmount: number;
+  paymentMethod: MarketplacePaymentMethod;
+  createdAt: Timestamp | string;
+  items?: MarketplaceOrderItem[];
+  fulfillment?: 'delivery' | 'pickup';
+  bookingDate?: string;
+  timeSlot?: string;
+  serviceSelected?: string;
+  stylist?: string;
+  serviceType?: string;
+  escrowStatus?: 'held' | 'released' | 'refunded';
+  completionOtp?: string;
+  technicianId?: string;
+}
+
+export type SupportTicketStatus = 'open' | 'in_progress' | 'resolved';
+export type SupportTicketCategory = 'Billing' | 'Delivery' | 'Service Quality' | 'Merchant Dispute' | 'General Inquiry' | 'Missing item' | 'Delay' | 'Cancel request' | 'Overcharged' | 'Quality issue';
+
+export interface TicketChatMessage {
+  sender: 'user' | 'admin';
+  message: string;
+  time: Timestamp | string;
+}
+
+export interface SupportTicket {
+  id: string;
+  ticketId: string;
+  orderId: string | null;
+  userId: string;
+  userPhone: string;
+  subject: string;
+  category: SupportTicketCategory;
+  status: SupportTicketStatus;
+  createdAt: Timestamp | string;
+  chatLogs: TicketChatMessage[];
+}
+
+export interface MarketplaceReview {
+  id: string;
+  reviewId: string;
+  merchantId: string;
+  customerId: string;
+  customerName: string;
+  rating: number;
+  comment: string;
+  orderId: string;
+  createdAt: Timestamp | string;
+  merchantReply?: string;
+}
+
+export interface SavedAddress {
+  id: string;
+  label: 'Home' | 'Office' | 'Other';
+  address: string;
+  city: 'Kathmandu' | 'Lalitpur' | 'Pokhara';
+  landmark: string;
+  phone: string;
+}
+
+export interface MerchantCatalogItem {
+  id: string;
+  merchantId: string;
+  title: string;
+  description: string;
+  price: number;
+  imageUrl: string;
+  inStock: boolean;
+  updatedAt: Timestamp | string;
+}
+
 export interface TimeSlot {
   start_time: string;
   end_time: string;

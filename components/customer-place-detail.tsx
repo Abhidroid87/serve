@@ -2,8 +2,10 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useAuth } from '@/lib/auth-context';
+import { createMarketplaceOrder, findVerifiedMerchantId, subscribePublicMerchantCatalog } from '@/lib/marketplace-data';
 import {
   ArrowLeft,
   ArrowRight,
@@ -104,7 +106,7 @@ const timeSlots = ['10:00 AM', '11:30 AM', '02:00 PM', '04:30 PM', '06:00 PM'];
 const staff = ['Any available stylist', 'Maya · Senior stylist', 'Aarav · Wellness therapist'];
 const currency = (amount: number) => `NPR ${amount.toLocaleString('en-IN')}`;
 const imageUrl = (image: string, width = 900) =>
-  `https://images.unsplash.com/${image}?auto=format&fit=crop&w=${width}&q=85`;
+  image.startsWith('https://') ? image : `https://images.unsplash.com/${image}?auto=format&fit=crop&w=${width}&q=85`;
 
 function todayAtMidnight() {
   const date = new Date();
@@ -213,6 +215,9 @@ function QuantityControl({ quantity, onChange, dark = false }: { quantity: numbe
 }
 
 export function CustomerPlaceDetail({ place }: CustomerPlaceDetailProps) {
+  const { user, setShowAuthModal } = useAuth();
+  const [liveCatalog, setLiveCatalog] = useState<CatalogItem[] | null>(null);
+  const [catalogError, setCatalogError] = useState('');
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [unitSelections, setUnitSelections] = useState<Record<string, string>>({});
   const [category, setCategory] = useState('All');
@@ -226,15 +231,37 @@ export function CustomerPlaceDetail({ place }: CustomerPlaceDetailProps) {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [fulfillment, setFulfillment] = useState<'delivery' | 'pickup'>('delivery');
   const [checkoutError, setCheckoutError] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [orderReference, setOrderReference] = useState('');
   const [notified, setNotified] = useState<Record<string, boolean>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setLiveCatalog(null);
+    return subscribePublicMerchantCatalog(
+      place.name,
+      (items) => setLiveCatalog(items.map((item) => ({
+        id: item.id,
+        name: item.title,
+        description: item.description,
+        category: 'Merchant catalog',
+        price: item.price,
+        image: item.imageUrl,
+        outOfStock: !item.inStock,
+      }))),
+      (error) => setCatalogError(error.message),
+    );
+  }, [place.name]);
 
   const isTableReservation = place.type === 'dining' && diningMode === 'table';
   const isBooking = place.type === 'salon_spa' || place.type === 'home_service' || isTableReservation || isClassReservation;
-  const items = place.type === 'retail' ? groceryItems : menuItems;
-  const categories = place.type === 'retail' ? groceryCategories : diningCategories;
+  const items = liveCatalog?.length ? liveCatalog : place.type === 'retail' ? groceryItems : menuItems;
+  const categories = liveCatalog?.length
+    ? ['All', 'Merchant catalog']
+    : place.type === 'retail' ? groceryCategories : diningCategories;
   const visibleItems = items.filter((item) => category === 'All' || item.category === category);
   const cartLines = Object.values(cart);
   const cartCount = cartLines.reduce((sum, line) => sum + line.quantity, 0);
@@ -272,15 +299,60 @@ export function CustomerPlaceDetail({ place }: CustomerPlaceDetailProps) {
     setCheckoutOpen(true);
   };
 
-  const confirmPurchase = () => {
+  const confirmPurchase = async () => {
     if (!customerName.trim() || !customerPhone.trim()) {
       setCheckoutError('Enter your name and phone number to continue.');
       return;
     }
+    if (!user) {
+      setCheckoutError('Sign in to save this order to your account.');
+      setShowAuthModal(true);
+      return;
+    }
+
+    setIsSubmitting(true);
     setCheckoutError('');
-    setOrderReference(`DEMO-${Math.random().toString(36).slice(2, 8).toUpperCase()}`);
-    setConfirmed(true);
-    setCheckoutOpen(false);
+    try {
+      const merchantId = await findVerifiedMerchantId(place.name);
+      const orderDetails = {
+        merchantId,
+        merchantName: place.name,
+        businessType: place.type,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        totalAmount: actionTotal,
+        paymentMethod: place.type === 'home_service' ? 'Escrow' as const : 'COD' as const,
+        ...(fulfillment === 'delivery' && customerAddress.trim() ? { customerAddress: customerAddress.trim() } : {}),
+        ...(cartCount > 0 ? {
+          items: cartLines.map(({ item, quantity, unit }) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            qty: quantity,
+            unit,
+          })),
+          fulfillment,
+        } : {}),
+        ...(selectedChoice ? { serviceSelected: selectedChoice.title } : {}),
+        ...(place.type === 'home_service' && selectedChoice ? {
+          serviceType: selectedChoice.title,
+          escrowStatus: 'held' as const,
+        } : {}),
+        ...(selectedDate ? { bookingDate: selectedDate } : {}),
+        ...(selectedTime ? { timeSlot: selectedTime } : {}),
+        ...(place.type === 'salon_spa' ? { stylist: selectedStaff } : {}),
+      };
+      const order = await createMarketplaceOrder({
+        ...orderDetails,
+      });
+      setOrderReference(order.orderId);
+      setConfirmed(true);
+      setCheckoutOpen(false);
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : 'Could not save this order. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const selectionReady = isTableReservation
@@ -312,7 +384,7 @@ export function CustomerPlaceDetail({ place }: CustomerPlaceDetailProps) {
             {isDining && (
               <div className="mt-7 flex w-fit rounded-full border border-neutral-200 bg-white p-1">
                 <button type="button" onClick={() => { setDiningMode('order'); setSelectedChoice(null); setSelectedDate(''); setSelectedTime(''); }} aria-pressed={diningMode === 'order'} className={`rounded-full px-4 py-2 text-sm font-semibold transition ${diningMode === 'order' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'}`}>Delivery / takeaway</button>
-                <button type="button" onClick={() => { setDiningMode('table'); setSelectedChoice({ title: 'Table reservation', description: `Table for ${guestCount} guests`, price: 0 }); }} aria-pressed={diningMode === 'table'} className={`rounded-full px-4 py-2 text-sm font-semibold transition ${diningMode === 'table' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'}`}>Book a table</button>
+                <button type="button" onClick={() => { setDiningMode('table'); setCart({}); setSelectedChoice({ title: 'Table reservation', description: `Table for ${guestCount} guests`, price: 0 }); }} aria-pressed={diningMode === 'table'} className={`rounded-full px-4 py-2 text-sm font-semibold transition ${diningMode === 'table' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'}`}>Book a table</button>
               </div>
             )}
 
@@ -335,6 +407,7 @@ export function CustomerPlaceDetail({ place }: CustomerPlaceDetailProps) {
               </section>
             ) : place.type === 'retail' || (isDining && diningMode === 'order') ? (
               <section className="mt-9">
+                {catalogError && <p role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Live merchant catalog could not be loaded: {catalogError}. Showing sample items instead.</p>}
                 <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
                   <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800">{place.type === 'retail' ? 'Shop local' : 'Made fresh for you'}</p><h2 className="mt-1 text-2xl font-bold sm:text-3xl">{place.type === 'retail' ? 'Everyday favorites' : 'Explore the menu'}</h2></div>
                   <p className="text-sm text-neutral-500">{place.type === 'retail' ? 'Local delivery · Usually in 30–45 min' : 'Prepared fresh · Pickup in about 20 min'}</p>
@@ -404,7 +477,7 @@ export function CustomerPlaceDetail({ place }: CustomerPlaceDetailProps) {
                     <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">{['Drop in', 'Most popular', 'Best value', 'Annual membership'][index]}</p>
                     <h3 className="mt-2 text-xl font-bold">{choice.title}</h3>
                     <p className="mt-2 min-h-10 text-sm leading-5 text-neutral-500">{choice.description}</p>
-                    <p className="mt-5 text-2xl font-bold">{currency(choice.price)}<span className="text-xs font-normal text-neutral-400">{index === 0 ? ' / day' : index === 1 ? ' / month' : ' / quarter'}</span></p>
+                    <p className="mt-5 text-2xl font-bold">{currency(choice.price)}<span className="text-xs font-normal text-neutral-400">{[' / day', ' / month', ' / quarter', ' / year'][index]}</span></p>
                     <ul className="mt-5 space-y-2 text-sm text-neutral-600">{['Access to all facilities', 'Flexible class schedule', 'Friendly expert coaches'].slice(0, index + 2).map((feature) => <li key={feature} className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-700" />{feature}</li>)}</ul>
                     <button type="button" onClick={() => { setIsClassReservation(false); setSelectedChoice(choice); }} aria-pressed={selectedChoice?.title === choice.title} className={`mt-6 h-11 w-full rounded-full text-sm font-semibold transition ${selectedChoice?.title === choice.title ? 'bg-emerald-800 text-white' : 'border border-neutral-200 hover:border-neutral-900'}`}>{selectedChoice?.title === choice.title ? 'Selected' : 'Get this pass'}</button>
                   </article>)}
@@ -451,10 +524,11 @@ export function CustomerPlaceDetail({ place }: CustomerPlaceDetailProps) {
               <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">{isBooking ? 'Almost there' : 'Secure checkout'}</p><h2 id="checkout-heading" className="mt-1 text-2xl font-bold">{isBooking ? 'Confirm your selection' : cartCount ? 'Review your cart' : 'Get your pass'}</h2></div><button type="button" onClick={() => setCheckoutOpen(false)} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-full hover:bg-neutral-100"><X className="h-4 w-4" /></button></div>
               {cartCount > 0 && <div className="mt-5 divide-y divide-neutral-100 rounded-2xl border border-neutral-200 px-4">{cartLines.map((line) => <div key={line.item.id} className="flex items-center justify-between gap-3 py-3 text-sm"><div><p className="font-semibold">{line.item.name}</p><p className="text-xs text-neutral-500">{line.quantity} × {line.unit}</p></div><span className="font-semibold">{currency(line.item.price * line.quantity)}</span></div>)}</div>}
               {selectedChoice && <div className="mt-5 flex items-start justify-between gap-3 rounded-2xl border border-neutral-200 p-4"><div><p className="font-semibold">{selectedChoice.title}</p><p className="mt-1 text-xs text-neutral-500">{selectedChoice.description}</p>{selectedDate && <p className="mt-2 text-xs font-medium text-emerald-800">{prettyDate(selectedDate)} · {selectedTime}{selectedStaff && place.type === 'salon_spa' ? ` · ${selectedStaff}` : ''}</p>}</div><p className="shrink-0 font-semibold">{currency(selectedChoice.price)}</p></div>}
+              {cartCount > 0 && <div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-neutral-600">Fulfillment<select value={fulfillment} onChange={(event) => setFulfillment(event.target.value as 'delivery' | 'pickup')} className="mt-1.5 h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm"><option value="delivery">Delivery</option><option value="pickup">Pickup</option></select></label>{fulfillment === 'delivery' && <label className="text-xs font-semibold text-neutral-600">Delivery address<input value={customerAddress} onChange={(event) => setCustomerAddress(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-neutral-200 px-3 text-sm" placeholder="Tole / street, city" /></label>}</div>}
               <div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-neutral-600">Your name<input autoComplete="name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-neutral-500" placeholder="Full name" /></label><label className="text-xs font-semibold text-neutral-600">Phone number<input autoComplete="tel" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-neutral-500" placeholder="+977" /></label></div>
               {checkoutError && <p role="alert" className="mt-3 text-sm text-red-700">{checkoutError}</p>}
               <div className="mt-5 flex items-center justify-between border-t border-neutral-200 pt-4"><span className="text-sm font-medium text-neutral-500">Total due</span><span className="text-xl font-bold">{currency(actionTotal)}</span></div>
-              <button type="button" onClick={confirmPurchase} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-800 text-sm font-bold text-white transition hover:bg-emerald-900"><CheckCircle2 className="h-4 w-4" />{isBooking ? 'Confirm booking' : 'Place order'}<span>·</span>{currency(actionTotal)}</button>
+              <button type="button" onClick={() => void confirmPurchase()} disabled={isSubmitting} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-800 text-sm font-bold text-white transition hover:bg-emerald-900 disabled:cursor-wait disabled:opacity-60"><CheckCircle2 className="h-4 w-4" />{isSubmitting ? 'Saving request…' : isBooking ? 'Confirm booking' : 'Place order'}<span>·</span>{currency(actionTotal)}</button>
               <p className="mt-3 text-center text-[11px] leading-5 text-neutral-400">Demo checkout · No payment is collected and this confirmation is not sent to the merchant.</p>
             </motion.section>
           </motion.div>
@@ -505,15 +579,15 @@ function OrderConfirmation({
     <section className="mx-auto mt-9 max-w-3xl">
       <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-6 text-center sm:p-9">
         <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 12 }} className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-800 text-white"><CheckCircle2 className="h-7 w-7" /></motion.div>
-        <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-emerald-800">Demo confirmation</p>
+        <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-emerald-800">Request submitted</p>
         <h2 className="mt-2 text-3xl font-bold">{isBooking ? 'Booking preview' : 'Order preview'}</h2>
         <p className="mt-2 text-sm text-neutral-600">{isBooking ? `${prettyDate(date)} at ${time}` : place.type === 'retail' ? 'Estimated delivery: 30–45 minutes.' : 'Estimated pickup: about 20–30 minutes.'}</p>
-        <p className="mt-2 text-xs text-neutral-500">This is a preview only. No order, payment, or booking was sent to the business.</p>
+        <p className="mt-2 text-xs text-neutral-500">Your request was saved to Kehi. Payment is not collected in this demo.</p>
         <div className="mt-5 inline-flex rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-neutral-700">Reference <span className="ml-2 font-mono text-emerald-800">{reference}</span></div>
       </div>
 
       <div className="mt-5 rounded-3xl border border-neutral-200 bg-white p-5 sm:p-7">
-        <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Demo status tracker</p><h3 className="mt-1 text-lg font-bold">{isBooking ? 'Booking progress' : 'Order progress'}</h3></div><span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />Preview only</span></div>
+        <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Status tracker</p><h3 className="mt-1 text-lg font-bold">{isBooking ? 'Booking progress' : 'Order progress'}</h3></div><span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />Request saved</span></div>
         <div className="mt-6 grid gap-4 sm:grid-cols-4">
           {milestones.map((milestone, index) => <motion.div key={milestone} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.12 }} className="flex items-center gap-3 sm:block">
             <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${index === 0 ? 'bg-emerald-800 text-white' : 'bg-neutral-100 text-neutral-400'}`}>{index === 0 ? <Check className="h-4 w-4" /> : <span className="text-xs font-bold">{index + 1}</span>}</span>

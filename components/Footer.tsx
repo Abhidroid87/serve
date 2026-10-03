@@ -14,9 +14,9 @@ const footerGroups = [
   {
     title: 'Help',
     links: [
-      { label: 'Contact Us', href: '/provider/' },
+      { label: 'Contact Us', href: '/support/' },
       { label: 'Corporate Announcements', href: '/#discover' },
-      { label: 'Partner Support', href: '/provider/' },
+      { label: 'Partner Support', href: '/support/' },
       { label: 'FAQs', href: '/#discover' },
     ],
   },
@@ -27,6 +27,7 @@ const footerGroups = [
       { label: 'Become a service partner', href: '/provider/' },
       { label: 'Promote your offers', href: '/provider/' },
       { label: 'Admin Login', href: '/admin/login/' },
+      { label: 'My Account', href: '/account/' },
     ],
   },
   {

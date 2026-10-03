@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity, ArrowUpRight, BriefcaseBusiness, Check, ClipboardList,
   Clock3, FileSearch, LayoutDashboard, LoaderCircle, LogOut, RefreshCw,
-  Search, ShieldAlert, Users, X,
+  Search, ShieldAlert, Store, TrendingUp, Users, X,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -15,6 +15,8 @@ import {
   type AdminModerationData, type ModerationEnquiry,
 } from '@/lib/data';
 import { cn } from '@/lib/utils';
+import { subscribeAdminOrders, subscribeAdminTickets } from '@/lib/marketplace-data';
+import type { MarketplaceOrder, SupportTicket } from '@/lib/types';
 
 type Panel = 'overview' | 'approvals' | 'enquiries' | 'assignments';
 type Access = 'checking' | 'signed-out' | 'denied' | 'allowed';
@@ -38,6 +40,8 @@ export default function AdminPage() {
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | ModerationEnquiry['source']>('all');
   const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const [marketplaceOrders, setMarketplaceOrders] = useState<MarketplaceOrder[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
 
   useEffect(() => {
     if (access === 'signed-out') router.replace('/admin/login/');
@@ -72,6 +76,17 @@ export default function AdminPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [authLoading, user]);
+
+  useEffect(() => {
+    if (access !== 'allowed') return;
+    try {
+      const stopOrders = subscribeAdminOrders(setMarketplaceOrders, (cause) => setError(cause.message));
+      const stopTickets = subscribeAdminTickets(setSupportTickets, (cause) => setError(cause.message));
+      return () => { stopOrders(); stopTickets(); };
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load marketplace monitoring data.');
+    }
+  }, [access]);
 
   const refresh = async () => {
     setLoading(true);
@@ -162,6 +177,12 @@ export default function AdminPage() {
               );
             })}
           </nav>
+          <Link href="/admin/tickets/" className="mt-3 flex h-10 items-center gap-3 border border-white/10 px-3 text-sm text-slate-400 transition-colors hover:bg-white/[0.03] hover:text-white">
+            <FileSearch className="h-4 w-4" /> Support desk
+          </Link>
+          <Link href="/admin/orders/" className="mt-2 flex h-10 items-center gap-3 border border-white/10 px-3 text-sm text-slate-400 transition-colors hover:bg-white/[0.03] hover:text-white">
+            <ClipboardList className="h-4 w-4" /> Order audit
+          </Link>
           <div className="mt-8 hidden border border-white/10 p-3 lg:block">
             <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Signed in</p>
             <p className="mt-2 truncate text-xs text-slate-300">{user?.email}</p>
@@ -191,9 +212,13 @@ export default function AdminPage() {
                   <>
                     <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                       <Metric label="Provider network" value={providers.length} detail="registered profiles" icon={Users} accent="text-cyan-200" />
+                      <Metric label="Active merchants" value={providers.filter((provider) => provider.is_verified).length} detail="verified profiles" icon={Store} accent="text-teal-200" />
                       <Metric label="Awaiting review" value={pendingProviders.length} detail="provider applications" icon={Clock3} accent="text-amber-200" />
                       <Metric label="Active jobs" value={activeBookings.length} detail="scheduled or underway" icon={BriefcaseBusiness} accent="text-emerald-200" />
                       <Metric label="Live enquiries" value={openRequests.length} detail="instant requests broadcasting" icon={Activity} accent="text-lime-200" />
+                      <Metric label="Active marketplace orders" value={marketplaceOrders.filter((order) => !['completed', 'cancelled'].includes(order.status)).length} detail="orders and appointments" icon={ClipboardList} accent="text-sky-200" />
+                      <Metric label="Gross transaction value" value={`NPR ${marketplaceOrders.filter((order) => order.status !== 'cancelled').reduce((total, order) => total + order.totalAmount, 0).toLocaleString('en-IN')}`} detail="recorded order value · not settled payments" icon={TrendingUp} accent="text-violet-200" />
+                      <Metric label="Open support tickets" value={supportTickets.filter((ticket) => ticket.status !== 'resolved').length} detail="awaiting support resolution" icon={FileSearch} accent="text-rose-200" />
                     </div>
                     <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.8fr)]">
                       <section className="border border-white/10 bg-[#0b1218]/80">
@@ -282,7 +307,7 @@ export default function AdminPage() {
   );
 }
 
-function Metric({ label, value, detail, icon: Icon, accent }: { label: string; value: number; detail: string; icon: typeof Users; accent: string }) {
+function Metric({ label, value, detail, icon: Icon, accent }: { label: string; value: number | string; detail: string; icon: typeof Users; accent: string }) {
   return <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -2 }} className="border border-white/10 bg-[#0b1218]/85 p-4 sm:p-5">
     <div className="flex items-start justify-between"><p className="text-xs uppercase tracking-[0.14em] text-slate-500">{label}</p><Icon className={cn('h-4 w-4', accent)} /></div>
     <p className="mt-5 font-mono text-3xl tracking-tight">{value.toLocaleString()}</p>

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Wrench, ArrowLeft, Star, Calendar, Clock, Zap, CheckCircle2, Radio, Power, Check,
-  MapPin, Phone, User, TrendingUp, Loader2, Bell, Navigation, X, LogOut, MessageSquareText,
+  MapPin, Phone, User, TrendingUp, Loader2, Bell, Navigation, X, LogOut, MessageSquareText, ShoppingBag,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import type { Provider, Booking, Service, ServiceCategory, ProviderAvailability, InstantRequest, ProviderBusinessType } from '@/lib/types';
@@ -16,6 +16,7 @@ import {
   type ProviderProfileInput, type ProviderEnquiry,
 } from '@/lib/data';
 import { cn } from '@/lib/utils';
+import { MerchantCatalogPanel, MerchantOrdersPanel, MerchantReviewsPanel } from '@/components/merchant-marketplace-panel';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -307,11 +308,16 @@ export default function ProviderPage() {
     : isRetailStore
       ? [
           { id: 'overview', label: labels.requests, icon: Calendar },
+          { id: 'orders', label: 'Live orders', icon: ShoppingBag },
+          { id: 'reviews', label: 'Customer reviews', icon: Star },
           { id: 'catalog', label: labels.catalog, icon: Wrench },
           { id: 'settings', label: labels.settings, icon: Clock },
         ]
       : [
           { id: 'overview', label: labels.appointments, icon: Calendar },
+          { id: 'orders', label: 'Appointments & orders', icon: ShoppingBag },
+          { id: 'reviews', label: 'Customer reviews', icon: Star },
+          { id: 'catalog', label: labels.catalog, icon: Wrench },
           { id: 'settings', label: labels.settings, icon: Clock },
         ];
 
@@ -527,19 +533,12 @@ export default function ProviderPage() {
           </div>
         )}
 
-        {activeTab === 'catalog' && isRetailStore && (
-          <section className="max-w-3xl space-y-3">
-            <div>
-              <h3 className="font-semibold text-lg">{labels.catalog}</h3>
-              <p className="text-sm text-muted-foreground">{labels.catalogNote}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(provider.fulfillment?.categories || []).map((category) => (
-                <span key={category} className="rounded-md border border-border px-3 py-2 text-sm">{category}</span>
-              ))}
-            </div>
-            {(provider.fulfillment?.categories || []).length === 0 && <EmptyManagementState icon={Wrench} message={labels.catalogNote} />}
-          </section>
+        {activeTab === 'orders' && <MerchantOrdersPanel merchantId={provider.id} />}
+
+        {activeTab === 'reviews' && <MerchantReviewsPanel merchantId={provider.id} />}
+
+        {activeTab === 'catalog' && (isRetailStore || isExperienceProvider) && (
+          <MerchantCatalogPanel merchantId={provider.id} />
         )}
 
         {activeTab === 'settings' && !isServiceProvider && (

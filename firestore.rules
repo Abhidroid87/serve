@@ -19,9 +19,38 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == providerId;
     }
 
+    function orderIsValid(data) {
+      return data.customerId is string
+        && data.customerName is string
+        && data.customerPhone is string
+        && data.merchantId is string
+        && data.merchantName is string
+        && data.businessType in ['retail', 'dining', 'salon_spa', 'fitness_activity', 'home_service']
+        && data.status in ['pending', 'accepted', 'preparing', 'ready', 'confirmed', 'in_progress', 'completed', 'cancelled']
+        && data.totalAmount is number
+        && data.totalAmount >= 0
+        && data.paymentMethod in ['COD', 'eSewa', 'Khalti', 'Escrow'];
+    }
+
+    function ownsOrder(orderId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/orders/$(orderId))
+        && get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid;
+    }
+
+    function ownsBooking(bookingId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && get(/databases/$(database)/documents/bookings/$(bookingId)).data.customer_uid == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId || isAdmin();
       allow create, update, delete: if isAdmin();
+
+      match /addresses/{addressId} {
+        allow read, create, update, delete: if signedIn() && request.auth.uid == userId;
+      }
     }
 
     match /providers/{userId} {
@@ -108,8 +137,91 @@ service cloud.firestore {
 
     match /reviews/{reviewId} {
       allow read: if true;
-      allow create: if signedIn();
-      allow update, delete: if isAdmin();
+      allow create: if isAdmin() || (signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.orderId is string
+        && ownsOrder(request.resource.data.orderId)
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.status == 'completed');
+      allow update: if isAdmin() || (signedIn()
+        && resource.data.merchantId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['merchantReply'])
+        && request.resource.data.merchantReply is string
+        && request.resource.data.merchantReply.size() <= 2000);
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin() || (signedIn()
+        && (resource.data.customerId == request.auth.uid || resource.data.merchantId == request.auth.uid));
+      allow create: if signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && orderIsValid(request.resource.data)
+        && exists(/databases/$(database)/documents/providers/$(request.resource.data.merchantId))
+        && get(/databases/$(database)/documents/providers/$(request.resource.data.merchantId)).data.is_verified == true
+        && get(/databases/$(database)/documents/providers/$(request.resource.data.merchantId)).data.business_name == request.resource.data.merchantName;
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.merchantId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.status in ['accepted', 'preparing', 'ready', 'confirmed', 'in_progress', 'completed', 'cancelled'])
+        || (ownsOrder(orderId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.status == 'cancelled');
+      allow delete: if isAdmin();
+    }
+
+    match /merchant_catalog/{itemId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.merchantId == request.auth.uid
+        && exists(/databases/$(database)/documents/providers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/providers/$(request.auth.uid)).data.is_verified == true
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.price is number
+        && request.resource.data.price >= 0
+        && request.resource.data.description is string
+        && request.resource.data.imageUrl is string
+        && (request.resource.data.imageUrl == '' || request.resource.data.imageUrl.matches('https://firebasestorage.googleapis.com/.*'))
+        && request.resource.data.inStock is bool;
+      allow update: if isAdmin() || (signedIn()
+        && resource.data.merchantId == request.auth.uid
+        && request.resource.data.merchantId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'description', 'price', 'imageUrl', 'inStock', 'updatedAt'
+        ])
+        && request.resource.data.imageUrl is string
+        && (request.resource.data.imageUrl == '' || request.resource.data.imageUrl.matches('https://firebasestorage.googleapis.com/.*')));
+      allow delete: if isAdmin() || (signedIn() && resource.data.merchantId == request.auth.uid);
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.subject is string
+        && request.resource.data.subject.size() > 0
+        && request.resource.data.subject.size() <= 160
+        && request.resource.data.userPhone is string
+        && request.resource.data.userPhone.size() <= 40
+        && request.resource.data.category is string
+        && request.resource.data.status == 'open'
+        && request.resource.data.chatLogs is list
+        && request.resource.data.chatLogs.size() == 1
+        && request.resource.data.chatLogs[0].sender == 'user'
+        && request.resource.data.chatLogs[0].message is string
+        && request.resource.data.chatLogs[0].message.size() > 0
+        && request.resource.data.chatLogs[0].message.size() <= 4000
+        && (!('orderId' in request.resource.data) || request.resource.data.orderId == null
+          || ownsOrder(request.resource.data.orderId) || ownsBooking(request.resource.data.orderId));
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'chatLogs', 'updatedAt'])
+        && request.resource.data.status in ['open', 'in_progress', 'resolved'];
+      allow delete: if isAdmin();
     }
 
     match /admin/{docId} {

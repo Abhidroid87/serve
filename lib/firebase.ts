@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
@@ -19,6 +20,10 @@ export function isFirebaseConfigured(): boolean {
     firebaseConfig.projectId &&
     firebaseConfig.appId,
   );
+}
+
+export function isFirebaseStorageConfigured(): boolean {
+  return isFirebaseConfigured() && Boolean(firebaseConfig.storageBucket);
 }
 
 function getFirebaseApp(): FirebaseApp {
@@ -40,6 +45,7 @@ function getFirebaseApp(): FirebaseApp {
 
 let _auth: Auth | null = null;
 let _db: Firestore | null = null;
+let _storage: FirebaseStorage | null = null;
 
 export function getFirebaseAuth(): Auth {
   if (!_auth) _auth = getAuth(getFirebaseApp());
@@ -51,11 +57,19 @@ export function getFirebaseDb(): Firestore {
   return _db;
 }
 
+export function getFirebaseStorage(): FirebaseStorage {
+  if (!_storage) _storage = getStorage(getFirebaseApp());
+  return _storage;
+}
+
 export const auth: Auth = getFirebaseAuth();
 export const db: Firestore = getFirebaseDb();
+export const storage: FirebaseStorage = getFirebaseStorage();
 
-export default new Proxy({} as FirebaseApp, {
+const firebaseAppProxy = new Proxy({} as FirebaseApp, {
   get(_, prop) {
     return Reflect.get(getFirebaseApp(), prop);
   },
 });
+
+export default firebaseAppProxy;
