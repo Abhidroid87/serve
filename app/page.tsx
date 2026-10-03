@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Zap, Wrench, Star, ArrowRight, CheckCircle2, Lock, MapPin, ChevronLeft, ChevronRight, ShoppingBag, Utensils, Sparkles, BadgeCheck, UserRound, Store, Scissors } from 'lucide-react';
 import * as Icons from 'lucide-react';
@@ -15,6 +16,7 @@ import { useAuth } from '@/lib/auth-context';
 import type { Service, ServiceCategory, Provider } from '@/lib/types';
 import { getMarketplaceCatalog, getProvidersForService } from '@/lib/data';
 import { cn } from '@/lib/utils';
+import { customerPlaceId } from '@/lib/customer-places';
 
 type DiscoveryTab = 'For You' | 'Dining' | 'Stores' | 'Activities' | 'Repairs';
 
@@ -210,8 +212,9 @@ function DiscoveryCategoryGrid({
   );
 }
 
-function LocalListingCard({ place, onSelect }: { place: (typeof localPlaces)[number]; onSelect: (tab: DiscoveryTab) => void }) {
+function LocalListingCard({ place }: { place: (typeof localPlaces)[number] }) {
   return (
+    <Link href={`/place/${customerPlaceId(place.name)}/`} className="block">
     <motion.article whileHover={{ y: -4 }} className="overflow-hidden rounded-xl border border-neutral-200/80 bg-white transition-shadow hover:shadow-lg">
       <div className="relative aspect-[4/3] overflow-hidden bg-neutral-100">
         <Image src={photoUrl(place.image, 720)} alt={place.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw" className="object-cover transition-transform duration-500 hover:scale-105" />
@@ -222,9 +225,10 @@ function LocalListingCard({ place, onSelect }: { place: (typeof localPlaces)[num
         <div className="mb-2 flex items-center justify-between gap-2"><span className="text-xs text-neutral-500">{place.category}</span><span className="flex items-center gap-1 text-xs text-neutral-500"><MapPin className="h-3 w-3" />{place.area}</span></div>
         <h3 className="truncate font-semibold">{place.name}</h3>
         <p className="mt-2 flex min-h-5 items-center gap-1.5 text-xs font-medium text-emerald-800"><BadgeCheck className="h-3.5 w-3.5 shrink-0" />{place.offer}</p>
-        <button type="button" onClick={() => onSelect(place.type)} className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-neutral-200 text-sm font-semibold transition hover:border-neutral-900 hover:bg-neutral-900 hover:text-white">Explore <ArrowRight className="h-4 w-4" /></button>
+        <span className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-neutral-200 text-sm font-semibold transition hover:border-neutral-900 hover:bg-neutral-900 hover:text-white">Explore <ArrowRight className="h-4 w-4" /></span>
       </div>
     </motion.article>
+    </Link>
   );
 }
 
@@ -485,7 +489,7 @@ export default function Home() {
                   <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900">{filteredPlaces.length + filteredServices.length} places</span>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
-                  {filteredPlaces.map((place) => <LocalListingCard key={place.name} place={place} onSelect={selectDiscoveryTab} />)}
+                  {filteredPlaces.map((place) => <LocalListingCard key={place.name} place={place} />)}
                   {filteredPlaces.length === 0 && <p className="col-span-full py-10 text-center text-sm text-neutral-500">No places match these filters. Try another subcategory or search.</p>}
                 </div>
               </section>
